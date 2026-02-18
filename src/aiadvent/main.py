@@ -1,8 +1,11 @@
 import os
+import sys
 from openai import OpenAI
 from openai.types.chat import (ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam)
 from rich.console import Console
 from rich.markdown import Markdown
+
+from aiadvent.strategies import strategy_1, strategy_2, strategy_3, strategy_4
 
 
 # noinspection PyTypeChecker
@@ -13,7 +16,34 @@ def main():
         print("Error: Please set OPENAI_API_KEY environment variable")
         return
 
+    # Parse strategy parameter
+    strategy = None
+    if len(sys.argv) > 1:
+        arg = sys.argv[1]
+        if arg.startswith('-p'):
+            try:
+                strategy = int(arg[2:])
+            except ValueError:
+                print(f"Error: Invalid strategy parameter '{arg}'. Use -p1, -p2, etc.")
+                return
+
     client = OpenAI(api_key=api_key)
+    
+    # Route to strategy
+    if strategy == 1:
+        strategy_1.run(client)
+        return
+    elif strategy == 2:
+        strategy_2.run(client)
+        return
+    elif strategy == 3:
+        strategy_3.run(client)
+        return
+    elif strategy == 4:
+        strategy_4.run(client)
+        return
+    
+    # Default behavior (original implementation)
     console = Console()
     messages = [
         ChatCompletionSystemMessageParam(
@@ -57,7 +87,6 @@ def main():
                     if chunk.choices and chunk.choices[0].delta.content:
                         content = chunk.choices[0].delta.content
                         safe_content = content.encode('utf-8', errors='ignore').decode('utf-8')
-                        # print(safe_content, end="", flush=True)
                         response_content += safe_content
                     
                     if chunk.choices and chunk.choices[0].finish_reason:
