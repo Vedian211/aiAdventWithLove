@@ -3,7 +3,7 @@ from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUs
 from aiadvent.utils import chat_loop, create_stream, stream_with_typing_effect, MODEL
 
 
-def run(client):
+def run(client, temperature=0.7):
     """Generate optimized prompt first, then use it to answer"""
     
     def handle_input(user_input, console, tracker):
@@ -11,6 +11,7 @@ def run(client):
         print("\n[Generating optimized prompt...]")
         prompt_response = client.chat.completions.create(
             model=MODEL,
+            temperature=temperature,
             messages=[
                 ChatCompletionSystemMessageParam(
                     role="system", 
@@ -34,7 +35,7 @@ def run(client):
         stream = create_stream(client, [
             ChatCompletionSystemMessageParam(role="system", content=generated_prompt),
             ChatCompletionUserMessageParam(role="user", content=user_input)
-        ])
+        ], temperature)
         _, usage_data = stream_with_typing_effect(stream, console)
         tracker.add_usage(usage_data)
         print()

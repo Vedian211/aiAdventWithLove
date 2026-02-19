@@ -3,7 +3,6 @@ import sys
 from openai import OpenAI
 from openai.types.chat import (ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam)
 from rich.console import Console
-from rich.markdown import Markdown
 
 from aiadvent.strategies import strategy_1, strategy_2, strategy_3, strategy_4
 
@@ -16,31 +15,48 @@ def main():
         print("Error: Please set OPENAI_API_KEY environment variable")
         return
 
-    # Parse strategy parameter
+    # Parse parameters
     strategy = None
-    if len(sys.argv) > 1:
-        arg = sys.argv[1]
+    temperature = 0.7
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
         if arg.startswith('-p'):
             try:
                 strategy = int(arg[2:])
             except ValueError:
                 print(f"Error: Invalid strategy parameter '{arg}'. Use -p1, -p2, etc.")
                 return
+        elif arg == '-t':
+            if i + 1 < len(sys.argv):
+                try:
+                    temperature = float(sys.argv[i + 1])
+                    if not 0 <= temperature <= 2:
+                        print("Error: Temperature must be between 0 and 2")
+                        return
+                    i += 1
+                except ValueError:
+                    print(f"Error: Invalid temperature value '{sys.argv[i + 1]}'")
+                    return
+            else:
+                print("Error: -t requires a value")
+                return
+        i += 1
 
     client = OpenAI(api_key=api_key)
     
     # Route to strategy
     if strategy == 1:
-        strategy_1.run(client)
+        strategy_1.run(client, temperature)
         return
     elif strategy == 2:
-        strategy_2.run(client)
+        strategy_2.run(client, temperature)
         return
     elif strategy == 3:
-        strategy_3.run(client)
+        strategy_3.run(client, temperature)
         return
     elif strategy == 4:
-        strategy_4.run(client)
+        strategy_4.run(client, temperature)
         return
     
     # Default behavior (original implementation)
@@ -73,11 +89,10 @@ def main():
                 stream = client.chat.completions.create(
                     model="gpt-4.1-mini",
                     messages=messages,
-                    max_tokens=100,
-                    temperature=0.7,
+                    max_tokens=500,
+                    temperature=temperature,
                     stream=True,
                     stream_options={"include_usage": True},
-                    stop=["Humans", "Fun Facts", "Fingerprints", "Brain"]
                 )
 
                 print()
@@ -88,6 +103,7 @@ def main():
                         content = chunk.choices[0].delta.content
                         safe_content = content.encode('utf-8', errors='ignore').decode('utf-8')
                         response_content += safe_content
+                        print(safe_content, end='', flush=True)
                     
                     if chunk.choices and chunk.choices[0].finish_reason:
                         finish_reason = chunk.choices[0].finish_reason
@@ -97,11 +113,8 @@ def main():
                         prompt_tokens += chunk.usage.prompt_tokens
                         completion_tokens += chunk.usage.completion_tokens
                 
-                print("\n")
-                console.print(Markdown(response_content))
-                if finish_reason == "stop" and response_content:
-                    print("\n[Response stopped: stop phrase detected]")
-                elif finish_reason == "length":
+                print()
+                if finish_reason == "length":
                     print("\n[Response stopped: max tokens reached]")
                 print()
                 

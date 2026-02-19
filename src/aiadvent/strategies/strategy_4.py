@@ -10,13 +10,14 @@ EXPERTS = {
 }
 
 
-def run(client):
+def run(client, temperature=0.7):
     """Group of experts answering in parallel"""
     
     def get_expert_response(expert_name, system_prompt, user_input):
         """Get streaming response from one expert"""
         stream = client.chat.completions.create(
             model=MODEL,
+            temperature=temperature,
             messages=[
                 ChatCompletionSystemMessageParam(role="system", content=system_prompt),
                 ChatCompletionUserMessageParam(role="user", content=user_input)

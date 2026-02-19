@@ -56,11 +56,12 @@ def replay_typing_effect(chunks, console, delay=0.01):
             time.sleep(delay)
 
 
-def create_stream(client, messages):
+def create_stream(client, messages, temperature=0.7):
     """Create streaming API call with standard parameters"""
     return client.chat.completions.create(
         model=MODEL,
         messages=messages,
+        temperature=temperature,
         stream=True,
         stream_options={"include_usage": True}
     )
