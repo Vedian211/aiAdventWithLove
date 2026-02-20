@@ -24,6 +24,7 @@ dependencies = [
 
 [project.scripts]
 ask-ai = "aiadvent.main:main"
+compare-models = "aiadvent.compare.compare_models:compare_models"
 
 [tool.setuptools.packages.find]
 where = ["src"]

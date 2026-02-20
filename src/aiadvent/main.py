@@ -1,9 +1,11 @@
 import os
 import sys
+import time
 from openai import OpenAI
 from openai.types.chat import (ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam)
 from rich.console import Console
-
+from rich.markdown import Markdown
+from rich.live import Live
 from aiadvent.strategies import strategy_1, strategy_2, strategy_3, strategy_4
 
 
@@ -44,6 +46,28 @@ def main():
         i += 1
 
     client = OpenAI(api_key=api_key)
+    
+    # Model selection
+    model_options = {
+        "1": ("gpt-4.1-nano", "Most affordable option. Fast and efficient for everyday tasks with good quality responses."),
+        "2": ("o4-mini", "Balanced performance and cost. Excellent reasoning capabilities for complex questions."),
+        "3": ("gpt-5.2", "Premium model with advanced reasoning. Best for complex problem-solving and detailed analysis.")
+    }
+    
+    print("Choose a model:")
+    print("1 - gpt-4.1-nano (cheapest)")
+    print("2 - o4-mini (medium)")
+    print("3 - gpt-5.2 (most expensive)")
+    
+    while True:
+        choice = input("Enter 1, 2, or 3: ").strip()
+        if choice in model_options:
+            selected_model, description = model_options[choice]
+            print(f"\n{description}")
+            break
+        print("Invalid choice. Please enter 1, 2, or 3.")
+    
+    print(f"Using model: {selected_model}\n")
     
     # Route to strategy
     if strategy == 1:
@@ -86,11 +110,12 @@ def main():
             messages.append(ChatCompletionUserMessageParam(role="user", content=user_input))
 
             try:
+                start_time = time.time()
                 stream = client.chat.completions.create(
-                    model="gpt-4.1-mini",
+                    model=selected_model,
                     messages=messages,
-                    max_tokens=500,
-                    temperature=temperature,
+                    # max_tokens=500,
+                    # temperature=temperature,
                     stream=True,
                     stream_options={"include_usage": True},
                 )
@@ -98,24 +123,32 @@ def main():
                 print()
                 response_content = ""
                 finish_reason = None
-                for chunk in stream:
-                    if chunk.choices and chunk.choices[0].delta.content:
-                        content = chunk.choices[0].delta.content
-                        safe_content = content.encode('utf-8', errors='ignore').decode('utf-8')
-                        response_content += safe_content
-                        print(safe_content, end='', flush=True)
-                    
-                    if chunk.choices and chunk.choices[0].finish_reason:
-                        finish_reason = chunk.choices[0].finish_reason
-                    
-                    if chunk.usage:
-                        total_tokens += chunk.usage.total_tokens
-                        prompt_tokens += chunk.usage.prompt_tokens
-                        completion_tokens += chunk.usage.completion_tokens
+                first_token_time = None
                 
+                with Live(Markdown(""), console=console, refresh_per_second=10) as live:
+                    for chunk in stream:
+                        if chunk.choices and chunk.choices[0].delta.content:
+                            if first_token_time is None:
+                                first_token_time = time.time()
+                            content = chunk.choices[0].delta.content
+                            safe_content = content.encode('utf-8', errors='ignore').decode('utf-8')
+                            response_content += safe_content
+                            live.update(Markdown(response_content))
+                        
+                        if chunk.choices and chunk.choices[0].finish_reason:
+                            finish_reason = chunk.choices[0].finish_reason
+                        
+                        if chunk.usage:
+                            total_tokens += chunk.usage.total_tokens
+                            prompt_tokens += chunk.usage.prompt_tokens
+                            completion_tokens += chunk.usage.completion_tokens
+                
+                elapsed_time = time.time() - start_time
+                time_to_first_token = first_token_time - start_time if first_token_time else 0
                 print()
                 if finish_reason == "length":
                     print("\n[Response stopped: max tokens reached]")
+                print(f"[Time to first token: {time_to_first_token:.2f}s | Total time: {elapsed_time:.2f}s]")
                 print()
                 
                 messages.append(ChatCompletionAssistantMessageParam(role="assistant", content=response_content))
