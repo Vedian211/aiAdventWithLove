@@ -20,11 +20,13 @@ requires-python = ">=3.8"
 dependencies = [
     "openai>=1.0.0",
     "rich>=13.0.0",
+    "tiktoken>=0.5.0",
 ]
 
 [project.scripts]
 ask-ai = "aiadvent.main:main"
 compare-models = "aiadvent.compare.compare_models:compare_models"
+agent = "aiadvent.agent.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
