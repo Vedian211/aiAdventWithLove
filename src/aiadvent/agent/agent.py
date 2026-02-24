@@ -1,6 +1,7 @@
 from openai import OpenAI
 from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam
 import tiktoken
+from .history import HistoryManager
 
 
 class Agent:
@@ -16,6 +17,8 @@ class Agent:
         self.messages = []
         self.encoding = tiktoken.get_encoding("cl100k_base")
         self.total_tokens_used = 0
+        self.session_id = None
+        self.history_manager = HistoryManager()
         
         if system_prompt:
             self.messages.append(ChatCompletionSystemMessageParam(
@@ -82,3 +85,96 @@ class Agent:
     def respond(self, user_input: str) -> str:
         """Public interface for getting agent response"""
         return self.think(user_input)
+    
+    def create_session(self, name: str) -> int:
+        """Create a new session in database"""
+        self.session_id = self.history_manager.create_session(
+            name=name,
+            model=self.model,
+            system_prompt=self.system_prompt
+        )
+        return self.session_id
+    
+    def save_message_to_db(self, role: str, content: str):
+        """Save a message to the database if session exists"""
+        if self.session_id:
+            self.history_manager.save_message(self.session_id, role, content)
+    
+    def load_session(self, session_id: int) -> bool:
+        """Load a session from database and restore agent state"""
+        session_data = self.history_manager.load_session(session_id)
+        if not session_data:
+            return False
+        
+        self.session_id = session_id
+        self.model = session_data["model"]
+        self.system_prompt = session_data["system_prompt"]
+        self.messages = []
+        
+        # Restore system prompt
+        if self.system_prompt:
+            self.messages.append(ChatCompletionSystemMessageParam(
+                role="system",
+                content=self.system_prompt
+            ))
+        
+        # Restore conversation messages
+        for msg in session_data["messages"]:
+            if msg["role"] == "user":
+                self.messages.append(ChatCompletionUserMessageParam(
+                    role="user",
+                    content=msg["content"]
+                ))
+            elif msg["role"] == "assistant":
+                self.messages.append(ChatCompletionAssistantMessageParam(
+                    role="assistant",
+                    content=msg["content"]
+                ))
+        
+        return True
+    
+    def list_sessions(self):
+        """List all available sessions"""
+        return self.history_manager.list_sessions()
+    
+    def generate_session_title(self) -> str:
+        """Generate a concise title for the conversation based on first exchange"""
+        # Only use first user message for title generation
+        first_user_msg = None
+        for msg in self.messages:
+            if msg["role"] == "user":
+                first_user_msg = msg["content"]
+                break
+        
+        if not first_user_msg:
+            return "New Chat"
+        
+        # Create a minimal prompt for title generation
+        title_prompt = [
+            ChatCompletionSystemMessageParam(
+                role="system",
+                content="Generate a concise 2-5 word title for a conversation that starts with this user message. Reply with ONLY the title, no quotes or punctuation."
+            ),
+            ChatCompletionUserMessageParam(
+                role="user",
+                content=first_user_msg
+            )
+        ]
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=title_prompt,
+                max_tokens=20
+            )
+            title = response.choices[0].message.content.strip()
+            # Clean up any quotes or extra formatting
+            title = title.strip('"\'.,!?')
+            return title if title else "New Chat"
+        except:
+            return "New Chat"
+    
+    def update_session_name(self, name: str):
+        """Update the current session's name"""
+        if self.session_id:
+            self.history_manager.update_session_name(self.session_id, name)

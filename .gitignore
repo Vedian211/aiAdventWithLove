@@ -71,4 +71,12 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# Conversation history database
+src/aiadvent/history/
+
+# Test scripts
+test_*.py
+demo_cli.sh
+create_test_sessions.py
+
 scratchpad.md
