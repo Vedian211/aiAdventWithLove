@@ -3,6 +3,7 @@ from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUs
 import tiktoken
 from .history import HistoryManager
 from .token_counter import TokenCounter
+from .context_compressor import ContextCompressor
 
 
 class Agent:
@@ -11,7 +12,7 @@ class Agent:
     TOKEN_LIMIT = 8192
     WARNING_THRESHOLD = 0.8
     
-    def __init__(self, api_key: str, model: str = "gpt-4", system_prompt: str = None):
+    def __init__(self, api_key: str, model: str = "gpt-4", system_prompt: str = None, compression_enabled: bool = False):
         self.client = OpenAI(api_key=api_key)
         self.model = model
         self.system_prompt = system_prompt
@@ -22,10 +23,15 @@ class Agent:
         self.session_id = None
         self.history_manager = HistoryManager()
         
+        # Compression
+        self.compression_enabled = compression_enabled
+        self.compressor = ContextCompressor(self.client, self.model) if compression_enabled else None
+        
         # Token tracking for last exchange
         self.last_prompt_tokens = 0
         self.last_response_tokens = 0
         self.last_history_tokens = 0
+        self.last_compression_stats = None
         
         if system_prompt:
             self.messages.append(ChatCompletionSystemMessageParam(
@@ -61,6 +67,10 @@ class Agent:
                 role="system",
                 content=self.system_prompt
             ))
+        
+        # Reset compressor if enabled
+        if self.compression_enabled and self.compressor:
+            self.compressor.reset()
     
     def think_stream(self, user_input: str):
         """Process user input and generate streaming response"""
@@ -69,12 +79,18 @@ class Agent:
         
         self.add_message("user", user_input)
         
+        # Get messages to send (compressed or full)
+        messages_to_send = self.messages
+        if self.compression_enabled and self.compressor:
+            messages_to_send = self.compressor.compress(self.messages, self.token_counter)
+            self.last_compression_stats = self.compressor.get_stats()
+        
         # Count full history tokens (before response)
         self.last_history_tokens = self.token_counter.count_messages(self.messages)
         
         stream = self.client.chat.completions.create(
             model=self.model,
-            messages=self.messages,
+            messages=messages_to_send,
             stream=True,
             stream_options={"include_usage": True}
         )
@@ -88,16 +104,25 @@ class Agent:
         
         self.add_message("user", user_input)
         
+        # Get messages to send (compressed or full)
+        messages_to_send = self.messages
+        if self.compression_enabled and self.compressor:
+            messages_to_send = self.compressor.compress(self.messages, self.token_counter)
+            self.last_compression_stats = self.compressor.get_stats()
+        
         # Count full history tokens (before response)
         self.last_history_tokens = self.token_counter.count_messages(self.messages)
         
         response = self.client.chat.completions.create(
             model=self.model,
-            messages=self.messages
+            messages=messages_to_send
         )
         
         assistant_message = response.choices[0].message.content
         self.add_message("assistant", assistant_message)
+        
+        # Count response tokens
+        self.set_last_response_tokens(assistant_message)
         
         return assistant_message
     
@@ -162,11 +187,16 @@ class Agent:
     
     def get_token_stats(self) -> dict:
         """Get token statistics for last exchange"""
-        return {
+        stats = {
             "prompt": self.last_prompt_tokens,
             "history": self.last_history_tokens,
             "response": self.last_response_tokens
         }
+        
+        if self.compression_enabled and self.last_compression_stats:
+            stats["compression"] = self.last_compression_stats
+        
+        return stats
         """Generate a concise title for the conversation based on first exchange"""
         # Only use first user message for title generation
         first_user_msg = None
@@ -207,3 +237,17 @@ class Agent:
         """Update the current session's name"""
         if self.session_id:
             self.history_manager.update_session_name(self.session_id, name)
+    
+    def toggle_compression(self, enabled: bool):
+        """Enable or disable compression"""
+        self.compression_enabled = enabled
+        if enabled and not self.compressor:
+            self.compressor = ContextCompressor(self.client, self.model)
+        elif not enabled and self.compressor:
+            self.compressor.reset()
+    
+    def get_compression_stats(self) -> dict:
+        """Get current compression statistics"""
+        if self.compressor:
+            return self.compressor.get_stats()
+        return None

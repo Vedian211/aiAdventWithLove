@@ -132,7 +132,7 @@ def start():
         return
     
     console = Console()
-    print("AI Agent started. Type '/exit' or '/quit' to stop, '/clear' to clear history, '/sessions' to switch sessions, '/delete' to delete a session.\n")
+    print("AI Agent started. Type '/exit' or '/quit' to stop, '/clear' to clear history, '/sessions' to switch sessions, '/delete' to delete a session, '/compression' to toggle compression.\n")
     
     first_exchange = True  # Track if this is the first exchange
     
@@ -203,6 +203,36 @@ def start():
                     print("\nCancelled.\n")
                 continue
             
+            if user_input.startswith("/compression"):
+                parts = user_input.split()
+                
+                # Toggle compression
+                if len(parts) == 1 or (len(parts) == 2 and parts[1] == "status"):
+                    status = "enabled" if agent.compression_enabled else "disabled"
+                    print(f"\nCompression: {status}")
+                    
+                    if agent.compression_enabled:
+                        stats = agent.get_compression_stats()
+                        if stats and stats['original'] > 0:
+                            print(f"  Original tokens: {stats['original']}")
+                            print(f"  Compressed tokens: {stats['compressed']}")
+                            print(f"  Tokens saved: {stats['saved']}")
+                            print(f"  Compression ratio: {stats['ratio']:.1f}%")
+                        else:
+                            print("  No compression stats yet (conversation too short)")
+                    print()
+                    continue
+                
+                if len(parts) == 2 and parts[1] in ["on", "off"]:
+                    enabled = parts[1] == "on"
+                    agent.toggle_compression(enabled)
+                    status = "enabled" if enabled else "disabled"
+                    print(f"\n✓ Compression {status}\n")
+                    continue
+                
+                print("\nUsage: /compression [on|off|status]\n")
+                continue
+            
             if not user_input.strip():
                 continue
             
@@ -238,7 +268,12 @@ def start():
                 
                 # Display token statistics
                 stats = agent.get_token_stats()
-                print(f"\n[Tokens - Prompt: {stats['prompt']} | History: {stats['history']} | Response: {stats['response']}]")
+                
+                if agent.compression_enabled and "compression" in stats and stats["compression"]["original"] > 0:
+                    comp = stats["compression"]
+                    print(f"\n[Tokens - Prompt: {stats['prompt']} | History: {stats['history']} | Compressed: {comp['original']}→{comp['compressed']} ({comp['ratio']:.1f}% saved) | Response: {stats['response']}]")
+                else:
+                    print(f"\n[Tokens - Prompt: {stats['prompt']} | History: {stats['history']} | Response: {stats['response']}]")
                 
                 # Save to database
                 agent.save_message_to_db("user", user_input)
