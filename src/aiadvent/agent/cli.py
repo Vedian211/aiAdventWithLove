@@ -53,10 +53,10 @@ def select_or_create_session(agent: Agent) -> bool:
                         continue
                     
                     if msg["role"] == "user":
-                        # Show user input with prompt style
+                        # Show user input with prompt style in green
                         token_count = agent.count_tokens()
                         percentage = int((token_count / agent.TOKEN_LIMIT) * 100)
-                        print(f"[{percentage}%] > {msg['content']}")
+                        console.print(f"[{percentage}%] > {msg['content']}", style="bold green")
                         print()
                     elif msg["role"] == "assistant":
                         # Show assistant response with markdown
@@ -122,7 +122,7 @@ def start():
     
     agent = Agent(
         api_key=api_key,
-        model="gpt-4.1-nano",
+        model="gpt-4",
         system_prompt="You are a helpful AI assistant."
     )
     
@@ -140,9 +140,9 @@ def start():
         while True:
             token_count = agent.count_tokens()
             percentage = int((token_count / agent.TOKEN_LIMIT) * 100)
-            prompt = f"[{percentage}%] > "
             
-            user_input = input(prompt)
+            console.print(f"[{percentage}%] > ", style="bold green", end="")
+            user_input = input()
             
             if user_input.lower() in ['/exit', '/quit']:
                 print(f"\nTotal tokens used in session: {agent.total_tokens_used}")
@@ -232,6 +232,13 @@ def start():
                 
                 # Add response to agent's history
                 agent.add_message("assistant", response_content)
+                
+                # Count response tokens
+                agent.set_last_response_tokens(response_content)
+                
+                # Display token statistics
+                stats = agent.get_token_stats()
+                print(f"\n[Tokens - Prompt: {stats['prompt']} | History: {stats['history']} | Response: {stats['response']}]")
                 
                 # Save to database
                 agent.save_message_to_db("user", user_input)

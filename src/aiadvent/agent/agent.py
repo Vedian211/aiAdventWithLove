@@ -2,23 +2,30 @@ from openai import OpenAI
 from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam
 import tiktoken
 from .history import HistoryManager
+from .token_counter import TokenCounter
 
 
 class Agent:
     """AI Agent that encapsulates OpenAI API interactions and maintains conversation state"""
     
-    TOKEN_LIMIT = 5000
+    TOKEN_LIMIT = 8192
     WARNING_THRESHOLD = 0.8
     
-    def __init__(self, api_key: str, model: str = "gpt-4.1-nano", system_prompt: str = None):
+    def __init__(self, api_key: str, model: str = "gpt-4", system_prompt: str = None):
         self.client = OpenAI(api_key=api_key)
         self.model = model
         self.system_prompt = system_prompt
         self.messages = []
         self.encoding = tiktoken.get_encoding("cl100k_base")
+        self.token_counter = TokenCounter()
         self.total_tokens_used = 0
         self.session_id = None
         self.history_manager = HistoryManager()
+        
+        # Token tracking for last exchange
+        self.last_prompt_tokens = 0
+        self.last_response_tokens = 0
+        self.last_history_tokens = 0
         
         if system_prompt:
             self.messages.append(ChatCompletionSystemMessageParam(
@@ -57,7 +64,13 @@ class Agent:
     
     def think_stream(self, user_input: str):
         """Process user input and generate streaming response"""
+        # Count prompt tokens
+        self.last_prompt_tokens = self.token_counter.count_message(user_input)
+        
         self.add_message("user", user_input)
+        
+        # Count full history tokens (before response)
+        self.last_history_tokens = self.token_counter.count_messages(self.messages)
         
         stream = self.client.chat.completions.create(
             model=self.model,
@@ -70,7 +83,13 @@ class Agent:
     
     def think(self, user_input: str) -> str:
         """Process user input and generate response using OpenAI API"""
+        # Count prompt tokens
+        self.last_prompt_tokens = self.token_counter.count_message(user_input)
+        
         self.add_message("user", user_input)
+        
+        # Count full history tokens (before response)
+        self.last_history_tokens = self.token_counter.count_messages(self.messages)
         
         response = self.client.chat.completions.create(
             model=self.model,
@@ -137,7 +156,17 @@ class Agent:
         """List all available sessions"""
         return self.history_manager.list_sessions()
     
-    def generate_session_title(self) -> str:
+    def set_last_response_tokens(self, response_content: str):
+        """Set token count for last response"""
+        self.last_response_tokens = self.token_counter.count_message(response_content)
+    
+    def get_token_stats(self) -> dict:
+        """Get token statistics for last exchange"""
+        return {
+            "prompt": self.last_prompt_tokens,
+            "history": self.last_history_tokens,
+            "response": self.last_response_tokens
+        }
         """Generate a concise title for the conversation based on first exchange"""
         # Only use first user message for title generation
         first_user_msg = None
