@@ -16,7 +16,10 @@ def select_or_create_session(agent: Agent) -> bool:
     print("\n=== Available Sessions ===")
     if sessions:
         for idx, session in enumerate(sessions, 1):
-            print(f"{idx}. {session['name']} (Last updated: {session['last_updated'][:19]})")
+            # Convert Unix timestamp to readable format
+            from datetime import datetime
+            last_updated = datetime.fromtimestamp(session['last_updated']).strftime('%Y-%m-%d %H:%M:%S')
+            print(f"{idx}. {session['name']} ({session['strategy']}) - Last updated: {last_updated}")
         print(f"{len(sessions) + 1}. Create new session")
     else:
         print("No existing sessions found.")
@@ -120,10 +123,26 @@ def start():
         print("Error: Please set OPENAI_API_KEY environment variable")
         return
     
+    # Parse strategy argument
+    strategy = "sliding_window"  # default
+    if len(sys.argv) > 2:
+        arg_strategy = sys.argv[2].lower()
+        if arg_strategy in ["sliding_window", "sticky_facts", "branching"]:
+            strategy = arg_strategy
+        else:
+            print(f"Unknown strategy: {arg_strategy}")
+            print("Available strategies: sliding_window, sticky_facts, branching")
+            return
+    
+    # Enable compression only for sliding_window (for now)
+    compression_enabled = (strategy == "sliding_window")
+    
     agent = Agent(
         api_key=api_key,
-        model="gpt-4",
-        system_prompt="You are a helpful AI assistant."
+        model="gpt-4o-mini",
+        system_prompt="You are a helpful AI assistant using a Branching Dialogue strategy." if strategy == "branching" else "You are a helpful AI assistant.",
+        compression_enabled=compression_enabled,
+        strategy=strategy
     )
     
     # Session selection
@@ -132,7 +151,11 @@ def start():
         return
     
     console = Console()
-    print("AI Agent started. Type '/exit' or '/quit' to stop, '/clear' to clear history, '/sessions' to switch sessions, '/delete' to delete a session, '/compression' to toggle compression.\n")
+    
+    # Show available commands based on strategy
+    base_commands = "Type '/help' for commands, '/exit' or '/quit' to stop."
+    
+    console.print(f"AI Agent started ({strategy} strategy). {base_commands}\n", style="bold blue")
     
     first_exchange = True  # Track if this is the first exchange
     
@@ -148,6 +171,33 @@ def start():
                 print(f"\nTotal tokens used in session: {agent.total_tokens_used}")
                 print("Goodbye!")
                 break
+            
+            if user_input == "/help":
+                console.print("\n=== Available Commands ===", style="bold cyan")
+                print("\nGeneral:")
+                print("  /help       - Show this help message")
+                print("  /exit       - Exit the session")
+                print("  /quit       - Exit the session")
+                print("  /clear      - Clear conversation history")
+                print("  /sessions   - Switch to another session")
+                print("  /delete     - Delete a session")
+                
+                if agent.strategy == "sliding_window":
+                    print("\nSliding Window Strategy:")
+                    print("  /compression [on|off|status] - Toggle or check compression")
+                elif agent.strategy == "sticky_facts":
+                    print("\nSticky Facts Strategy:")
+                    print("  /facts      - View stored facts")
+                elif agent.strategy == "branching":
+                    print("\nBranching Strategy:")
+                    print("  /checkpoint <name>           - Create a checkpoint")
+                    print("  /checkpoint                  - List all checkpoints")
+                    print("  /branch                      - List all branches")
+                    print("  /branch create <checkpoint>  - Create branch from checkpoint")
+                    print("  /branch switch <branch_id>   - Switch to a branch")
+                
+                print()
+                continue
             
             if user_input == "/clear":
                 print(f"[History cleared. Tokens used in session: {agent.total_tokens_used}]\n")
@@ -170,7 +220,9 @@ def start():
                 
                 print("\n=== Delete Session ===")
                 for idx, session in enumerate(sessions, 1):
-                    print(f"{idx}. {session['name']}")
+                    from datetime import datetime
+                    last_updated = datetime.fromtimestamp(session['last_updated']).strftime('%Y-%m-%d %H:%M:%S')
+                    print(f"{idx}. {session['name']} ({session['strategy']}) - {last_updated}")
                 print("0. Cancel")
                 
                 try:
@@ -233,6 +285,92 @@ def start():
                 print("\nUsage: /compression [on|off|status]\n")
                 continue
             
+            if user_input == "/facts":
+                if agent.sticky_facts_manager:
+                    stats = agent.sticky_facts_manager.get_stats()
+                    if stats["total_facts"] > 0:
+                        import json
+                        print("\n=== Sticky Facts ===")
+                        for key, value in stats["facts"].items():
+                            if value:
+                                if isinstance(value, (dict, list)):
+                                    print(f"  {key}:")
+                                    print(f"    {json.dumps(value, indent=4)}")
+                                else:
+                                    print(f"  {key}: {value}")
+                        print()
+                    else:
+                        print("\nNo facts stored yet.\n")
+                else:
+                    print("\nSticky facts not enabled for this session.\n")
+                continue
+            
+            if user_input.startswith("/checkpoint"):
+                if not agent.branching_manager:
+                    print("\nBranching not enabled for this session.\n")
+                    continue
+                
+                parts = user_input.split(maxsplit=1)
+                if len(parts) == 1:
+                    # List checkpoints
+                    checkpoints = agent.branching_manager.list_checkpoints()
+                    if checkpoints:
+                        print("\n=== Checkpoints ===")
+                        for cp in checkpoints:
+                            print(f"  {cp['id']}: {cp['name']} ({cp['message_count']} messages)")
+                        print()
+                    else:
+                        print("\nNo checkpoints created yet.\n")
+                else:
+                    # Create checkpoint
+                    name = parts[1]
+                    cp_id = agent.branching_manager.create_checkpoint(name, agent.messages)
+                    print(f"\n✓ Created checkpoint '{name}' ({cp_id})\n")
+                continue
+            
+            if user_input.startswith("/branch"):
+                if not agent.branching_manager:
+                    print("\nBranching not enabled for this session.\n")
+                    continue
+                
+                parts = user_input.split()
+                
+                if len(parts) == 1:
+                    # List branches
+                    branches = agent.branching_manager.list_branches()
+                    if branches:
+                        print("\n=== Branches ===")
+                        for br in branches:
+                            active = " (active)" if br['active'] else ""
+                            print(f"  {br['id']}: {br['name']} from {br['checkpoint_id']} ({br['message_count']} messages){active}")
+                        print()
+                    else:
+                        print("\nNo branches created yet.\n")
+                elif len(parts) == 3 and parts[1] == "create":
+                    # Create branch: /branch create <checkpoint_id> <name>
+                    checkpoint_id = parts[2]
+                    name = input("Branch name: ").strip()
+                    br_id = agent.branching_manager.create_branch(checkpoint_id, name, agent.messages)
+                    if br_id:
+                        print(f"\n✓ Created branch '{name}' ({br_id}) from {checkpoint_id}\n")
+                    else:
+                        print(f"\n✗ Checkpoint {checkpoint_id} not found\n")
+                elif len(parts) == 3 and parts[1] == "switch":
+                    # Switch branch: /branch switch <branch_id>
+                    branch_id = parts[2]
+                    messages = agent.branching_manager.switch_branch(branch_id)
+                    if messages:
+                        agent.messages = messages
+                        print(f"\n✓ Switched to branch {branch_id}\n")
+                    else:
+                        print(f"\n✗ Branch {branch_id} not found\n")
+                else:
+                    print("\nUsage:")
+                    print("  /branch                    - List all branches")
+                    print("  /branch create <cp_id>     - Create branch from checkpoint")
+                    print("  /branch switch <br_id>     - Switch to branch\n")
+                continue
+            
             if not user_input.strip():
                 continue
             
@@ -272,12 +410,23 @@ def start():
                 if agent.compression_enabled and "compression" in stats and stats["compression"]["original"] > 0:
                     comp = stats["compression"]
                     print(f"\n[Tokens - Prompt: {stats['prompt']} | History: {stats['history']} | Compressed: {comp['original']}→{comp['compressed']} ({comp['ratio']:.1f}% saved) | Response: {stats['response']}]")
+                elif agent.sticky_facts_manager and "sticky_facts" in stats:
+                    facts = stats["sticky_facts"]
+                    print(f"\n[Tokens - Prompt: {stats['prompt']} | History: {stats['history']} | Response: {stats['response']} | Facts: {facts['total_facts']}]")
+                elif agent.branching_manager and "branching" in stats:
+                    branching = stats["branching"]
+                    branch_info = f" | Branch: {branching['current_branch']}" if branching['current_branch'] else ""
+                    print(f"\n[Tokens - Prompt: {stats['prompt']} | History: {stats['history']} | Response: {stats['response']} | Checkpoints: {branching['checkpoints']} | Branches: {branching['branches']}{branch_info}]")
                 else:
                     print(f"\n[Tokens - Prompt: {stats['prompt']} | History: {stats['history']} | Response: {stats['response']}]")
                 
                 # Save to database
-                agent.save_message_to_db("user", user_input)
-                agent.save_message_to_db("assistant", response_content)
+                agent.save_message_to_db("user", user_input, stats['prompt'])
+                agent.save_message_to_db("assistant", response_content, stats['response'])
+                
+                # Save facts only if using sticky facts strategy
+                if agent.strategy == "sticky_facts" and agent.sticky_facts_manager:
+                    agent.save_facts()
                 
                 # Generate title after first exchange for new sessions
                 if first_exchange:
@@ -310,10 +459,14 @@ def start():
 def main():
     """Main entry point for agent CLI"""
     if len(sys.argv) < 2:
-        print("Usage: agent <command>")
+        print("Usage: agent <command> [strategy]")
         print("Commands:")
-        print("  start     Start the AI agent")
-        print("  delete    Delete a session")
+        print("  start [strategy]  Start the AI agent")
+        print("  delete            Delete a session")
+        print("\nStrategies:")
+        print("  sliding_window    Use sliding window compression (default)")
+        print("  sticky_facts      Use sticky facts (coming soon)")
+        print("  branching         Use branching (coming soon)")
         return
     
     command = sys.argv[1]
