@@ -109,6 +109,43 @@ class HistoryManager:
                 )
             """)
             
+            # User profile table (long-term memory)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_profile (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key TEXT UNIQUE NOT NULL,
+                    value TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+            """)
+            
+            # Learned solutions table (long-term memory)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS learned_solutions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    problem_type TEXT NOT NULL,
+                    solution TEXT NOT NULL,
+                    context TEXT,
+                    success_count INTEGER DEFAULT 1,
+                    last_used INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL
+                )
+            """)
+            
+            # Knowledge base table (long-term memory)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS knowledge_base (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    topic TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    source_session_id INTEGER,
+                    relevance_score REAL DEFAULT 1.0,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (source_session_id) REFERENCES sessions(id) ON DELETE SET NULL
+                )
+            """)
+            
             # Create indexes
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, sequence)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_facts_session ON sticky_facts(session_id)")
@@ -116,6 +153,9 @@ class HistoryManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_branches_session ON branches(session_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_branch_messages ON branch_messages(branch_id, sequence)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_profile_category ON user_profile(category)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_solutions_type ON learned_solutions(problem_type)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_topic ON knowledge_base(topic)")
             
             conn.commit()
     
@@ -340,4 +380,80 @@ class HistoryManager:
                 (branch_id,)
             ).fetchall()
             
+            return [dict(row) for row in rows]
+    
+    # Long-term memory methods
+    
+    def save_profile_item(self, key: str, value: str, category: str):
+        """Save a user profile item"""
+        now = int(datetime.now().timestamp())
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO user_profile (key, value, category, updated_at) VALUES (?, ?, ?, ?)",
+                (key, value, category, now)
+            )
+            conn.commit()
+    
+    def load_profile(self, category: str = None) -> dict:
+        """Load user profile, optionally filtered by category"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            if category:
+                rows = conn.execute("SELECT key, value, category FROM user_profile WHERE category = ?", (category,)).fetchall()
+            else:
+                rows = conn.execute("SELECT key, value, category FROM user_profile").fetchall()
+            
+            profile = {}
+            for row in rows:
+                cat = row["category"]
+                if cat not in profile:
+                    profile[cat] = {}
+                profile[cat][row["key"]] = row["value"]
+            return profile
+    
+    def save_solution(self, problem_type: str, solution: str, context: str = None) -> int:
+        """Save a learned solution"""
+        now = int(datetime.now().timestamp())
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "INSERT INTO learned_solutions (problem_type, solution, context, last_used, created_at) VALUES (?, ?, ?, ?, ?)",
+                (problem_type, solution, context, now, now)
+            )
+            conn.commit()
+            return cursor.lastrowid
+    
+    def load_solutions(self, problem_type: str = None, limit: int = 10) -> list:
+        """Load learned solutions, optionally filtered by problem type"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            if problem_type:
+                rows = conn.execute(
+                    "SELECT * FROM learned_solutions WHERE problem_type LIKE ? ORDER BY success_count DESC, last_used DESC LIMIT ?",
+                    (f"%{problem_type}%", limit)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM learned_solutions ORDER BY success_count DESC, last_used DESC LIMIT ?",
+                    (limit,)
+                ).fetchall()
+            return [dict(row) for row in rows]
+    
+    def save_knowledge(self, topic: str, content: str, session_id: int = None):
+        """Save knowledge base entry"""
+        now = int(datetime.now().timestamp())
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO knowledge_base (topic, content, source_session_id, created_at) VALUES (?, ?, ?, ?)",
+                (topic, content, session_id, now)
+            )
+            conn.commit()
+    
+    def search_knowledge(self, query: str, limit: int = 5) -> list:
+        """Search knowledge base by query"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM knowledge_base WHERE topic LIKE ? OR content LIKE ? ORDER BY relevance_score DESC LIMIT ?",
+                (f"%{query}%", f"%{query}%", limit)
+            ).fetchall()
             return [dict(row) for row in rows]

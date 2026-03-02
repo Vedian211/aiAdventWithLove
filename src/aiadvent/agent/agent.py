@@ -6,6 +6,8 @@ from .token_counter import TokenCounter
 from .context_compressor import ContextCompressor
 from .sticky_facts import StickyFactsManager
 from .branching import BranchingManager
+from .long_term_memory import LongTermMemoryManager
+from .memory_manager import MemoryManager
 
 
 class Agent:
@@ -35,6 +37,15 @@ class Agent:
         
         # Branching
         self.branching_manager = BranchingManager(self.history_manager, None) if strategy == "branching" else None
+        
+        # Memory layers
+        if strategy == "memory_layers":
+            self.long_term_memory = LongTermMemoryManager(self.history_manager, self.client, self.model)
+            self.sticky_facts_manager = StickyFactsManager(self.client, self.model)
+            self.memory_manager = MemoryManager(self, self.long_term_memory)
+        else:
+            self.long_term_memory = None
+            self.memory_manager = None
         
         # Token tracking for last exchange
         self.last_prompt_tokens = 0
@@ -135,10 +146,20 @@ class Agent:
         # Count response tokens
         self.set_last_response_tokens(assistant_message)
         
+        # Update memories if using memory layers
+        if self.memory_manager:
+            self.memory_manager.process_exchange(user_input, assistant_message)
+        
         return assistant_message
     
     def _prepare_messages(self):
         """Prepare messages based on active strategy"""
+        # Memory layers strategy
+        if self.memory_manager:
+            return self.memory_manager.build_context_for_prompt(
+                self.messages[-1]["content"] if self.messages and self.messages[-1]["role"] != "system" else ""
+            )
+        
         # Sticky facts strategy
         if self.sticky_facts_manager:
             # Extract facts from conversation

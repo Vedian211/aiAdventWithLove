@@ -88,7 +88,9 @@ def delete_session_command():
     
     print("\n=== Available Sessions ===")
     for idx, session in enumerate(sessions, 1):
-        print(f"{idx}. {session['name']} (Last updated: {session['last_updated'][:19]})")
+        from datetime import datetime
+        last_updated = datetime.fromtimestamp(session['last_updated']).strftime('%Y-%m-%d %H:%M:%S')
+        print(f"{idx}. {session['name']} (Last updated: {last_updated})")
     print("0. Cancel")
     
     try:
@@ -456,6 +458,25 @@ def start():
         print("Goodbye!")
 
 
+def clear_database_command():
+    """Clear all sessions from database"""
+    print("\n⚠️  WARNING: This will delete ALL sessions and data!")
+    confirm = input("Type 'yes' to confirm: ").strip().lower()
+    
+    if confirm != 'yes':
+        print("Cancelled.")
+        return
+    
+    from pathlib import Path
+    db_path = Path(__file__).parent.parent / "history" / "conversations.db"
+    
+    if db_path.exists():
+        db_path.unlink()
+        print("✅ Database cleared successfully!")
+    else:
+        print("No database found.")
+
+
 def main():
     """Main entry point for agent CLI"""
     if len(sys.argv) < 2:
@@ -463,6 +484,7 @@ def main():
         print("Commands:")
         print("  start [strategy]  Start the AI agent")
         print("  delete            Delete a session")
+        print("  clear database    Clear all sessions")
         print("\nStrategies:")
         print("  sliding_window    Use sliding window compression (default)")
         print("  sticky_facts      Use sticky facts (coming soon)")
@@ -475,9 +497,11 @@ def main():
         start()
     elif command == "delete":
         delete_session_command()
+    elif command == "clear" and len(sys.argv) > 2 and sys.argv[2] == "database":
+        clear_database_command()
     else:
         print(f"Unknown command: {command}")
-        print("Available commands: start, delete")
+        print("Available commands: start, delete, clear database")
 
 
 if __name__ == "__main__":
