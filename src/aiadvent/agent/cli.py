@@ -152,6 +152,31 @@ def start():
         print("Goodbye!")
         return
     
+    # Profile selection (optional)
+    profiles = agent.history_manager.list_user_profiles()
+    
+    # Check if session already has a profile
+    existing_profile_id = agent.history_manager.get_session_profile(agent.session_id)
+    if existing_profile_id:
+        agent.set_user_profile(existing_profile_id)
+        print(f"✓ Loaded profile: {agent.user_profile.name}\n")
+    elif profiles:
+        print("\n=== User Profiles ===")
+        for idx, p in enumerate(profiles, 1):
+            print(f"{idx}. {p['name']} - {p['communication_style']}/{p['response_format']}")
+        print(f"{len(profiles) + 1}. Skip (no profile)")
+        
+        try:
+            choice = input("\nSelect profile (or press Enter to skip): ").strip()
+            if choice and choice != str(len(profiles) + 1):
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(profiles):
+                    profile_id = profiles[choice_num - 1]['id']
+                    agent.set_user_profile(profile_id)
+                    print(f"✓ Profile activated\n")
+        except (ValueError, KeyboardInterrupt):
+            print("Skipping profile selection\n")
+    
     console = Console()
     
     # Show available commands based on strategy
@@ -183,6 +208,13 @@ def start():
                 print("  /clear      - Clear conversation history")
                 print("  /sessions   - Switch to another session")
                 print("  /delete     - Delete a session")
+                
+                print("\nPersonalization:")
+                print("  /profile create       - Create new user profile")
+                print("  /profile list         - List all profiles")
+                print("  /profile switch <id>  - Switch to different profile")
+                print("  /profile show         - Show current profile settings")
+                print("  /profile clear        - Delete all profiles")
                 
                 if agent.strategy == "sliding_window":
                     print("\nSliding Window Strategy:")
@@ -256,6 +288,71 @@ def start():
                 except (ValueError, KeyboardInterrupt):
                     print("\nCancelled.\n")
                 continue
+            
+            # Profile commands
+            if user_input.startswith("/profile"):
+                from .user_profile import UserProfile
+                
+                parts = user_input.split(maxsplit=1)
+                subcommand = parts[1] if len(parts) > 1 else ""
+                
+                if subcommand == "create":
+                    profile = UserProfile(agent.client, agent.model, agent.history_manager)
+                    profile_id = profile.create_profile_interactive()
+                    if profile_id:
+                        agent.set_user_profile(profile_id)
+                        print(f"✓ Profile activated for this session\n")
+                    continue
+                
+                elif subcommand == "list":
+                    profiles = agent.history_manager.list_user_profiles()
+                    if not profiles:
+                        print("\nNo profiles found. Use '/profile create' to create one.\n")
+                    else:
+                        print("\n=== User Profiles ===")
+                        for p in profiles:
+                            marker = " (active)" if agent.profile_id == p['id'] else ""
+                            print(f"{p['id']}. {p['name']} - {p['communication_style']}/{p['response_format']}{marker}")
+                        print()
+                    continue
+                
+                elif subcommand.startswith("switch"):
+                    try:
+                        profile_id = int(subcommand.split()[1])
+                        if agent.set_user_profile(profile_id):
+                            print(f"✓ Switched to profile {profile_id}\n")
+                        else:
+                            print(f"✗ Profile {profile_id} not found\n")
+                    except (IndexError, ValueError):
+                        print("Usage: /profile switch <id>\n")
+                    continue
+                
+                elif subcommand == "show":
+                    if agent.user_profile:
+                        print(f"\n{agent.user_profile}\n")
+                    else:
+                        print("\nNo profile active. Use '/profile create' or '/profile switch <id>'\n")
+                    continue
+                
+                elif subcommand == "clear":
+                    confirm = input("Delete ALL profiles? (yes/no): ").strip().lower()
+                    if confirm == "yes":
+                        agent.history_manager.delete_all_profiles()
+                        agent.user_profile = None
+                        agent.profile_id = None
+                        print("✓ All profiles deleted\n")
+                    else:
+                        print("Cancelled.\n")
+                    continue
+                
+                else:
+                    print("\nProfile commands:")
+                    print("  /profile create       - Create new profile")
+                    print("  /profile list         - List all profiles")
+                    print("  /profile switch <id>  - Switch to profile")
+                    print("  /profile show         - Show current profile")
+                    print("  /profile clear        - Delete all profiles\n")
+                    continue
             
             if user_input.startswith("/compression"):
                 parts = user_input.split()

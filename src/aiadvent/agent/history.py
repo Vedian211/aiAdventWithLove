@@ -146,6 +146,33 @@ class HistoryManager:
                 )
             """)
             
+            # User profiles table (personalization)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_profiles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    communication_style TEXT,
+                    response_format TEXT,
+                    language TEXT,
+                    constraints TEXT,
+                    preferences TEXT,
+                    domain_expertise TEXT,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+            """)
+            
+            # Session-profile link table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS session_profiles (
+                    session_id INTEGER NOT NULL,
+                    profile_id INTEGER NOT NULL,
+                    PRIMARY KEY (session_id),
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (profile_id) REFERENCES user_profiles(id) ON DELETE CASCADE
+                )
+            """)
+            
             # Create indexes
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, sequence)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_facts_session ON sticky_facts(session_id)")
@@ -457,3 +484,70 @@ class HistoryManager:
                 (f"%{query}%", f"%{query}%", limit)
             ).fetchall()
             return [dict(row) for row in rows]
+    
+    def create_user_profile(self, profile_data: dict) -> int:
+        """Create a new user profile and return its ID"""
+        now = int(datetime.now().timestamp())
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                """INSERT INTO user_profiles 
+                (name, communication_style, response_format, language, constraints, preferences, domain_expertise, created_at, updated_at) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (profile_data["name"], profile_data["communication_style"], profile_data["response_format"],
+                 profile_data["language"], profile_data["constraints"], profile_data["preferences"],
+                 profile_data["domain_expertise"], now, now)
+            )
+            conn.commit()
+            return cursor.lastrowid
+    
+    def load_user_profile(self, profile_id: int) -> Optional[dict]:
+        """Load user profile by ID"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT * FROM user_profiles WHERE id = ?", (profile_id,)).fetchone()
+            return dict(row) if row else None
+    
+    def update_user_profile(self, profile_id: int, profile_data: dict):
+        """Update existing user profile"""
+        now = int(datetime.now().timestamp())
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """UPDATE user_profiles SET 
+                name = ?, communication_style = ?, response_format = ?, language = ?, 
+                constraints = ?, preferences = ?, domain_expertise = ?, updated_at = ?
+                WHERE id = ?""",
+                (profile_data["name"], profile_data["communication_style"], profile_data["response_format"],
+                 profile_data["language"], profile_data["constraints"], profile_data["preferences"],
+                 profile_data["domain_expertise"], now, profile_id)
+            )
+            conn.commit()
+    
+    def list_user_profiles(self) -> list:
+        """List all user profiles"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT * FROM user_profiles ORDER BY updated_at DESC").fetchall()
+            return [dict(row) for row in rows]
+    
+    def link_session_to_profile(self, session_id: int, profile_id: int):
+        """Link a session to a user profile"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute(
+                "INSERT OR REPLACE INTO session_profiles (session_id, profile_id) VALUES (?, ?)",
+                (session_id, profile_id)
+            )
+            conn.commit()
+    
+    def get_session_profile(self, session_id: int) -> Optional[int]:
+        """Get profile ID linked to a session"""
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute("SELECT profile_id FROM session_profiles WHERE session_id = ?", (session_id,)).fetchone()
+            return row[0] if row else None
+    
+    def delete_all_profiles(self):
+        """Delete all user profiles"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("DELETE FROM user_profiles")
+            conn.commit()

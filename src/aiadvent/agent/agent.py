@@ -8,6 +8,7 @@ from .sticky_facts import StickyFactsManager
 from .branching import BranchingManager
 from .long_term_memory import LongTermMemoryManager
 from .memory_manager import MemoryManager
+from .user_profile import UserProfile
 
 
 class Agent:
@@ -27,6 +28,10 @@ class Agent:
         self.session_id = None
         self.history_manager = HistoryManager()
         self.strategy = strategy
+        
+        # User profile
+        self.user_profile = None
+        self.profile_id = None
         
         # Compression (sliding window)
         self.compression_enabled = compression_enabled
@@ -360,3 +365,40 @@ class Agent:
         if self.compressor:
             return self.compressor.get_stats()
         return None
+    
+    def set_user_profile(self, profile_id: int) -> bool:
+        """Load and activate user profile"""
+        profile = UserProfile(self.client, self.model, self.history_manager)
+        if profile.load_profile(profile_id):
+            self.user_profile = profile
+            self.profile_id = profile_id
+            
+            # Link profile to current session
+            if self.session_id:
+                self.history_manager.link_session_to_profile(self.session_id, profile_id)
+            
+            # Rebuild system prompt with profile
+            self._rebuild_system_prompt()
+            return True
+        return False
+    
+    def _rebuild_system_prompt(self):
+        """Rebuild system prompt with profile enhancements"""
+        # Remove old system message if exists
+        if self.messages and self.messages[0].get("role") == "system":
+            self.messages.pop(0)
+        
+        # Build new system prompt
+        base_prompt = self.system_prompt or "You are a helpful AI assistant."
+        
+        if self.user_profile:
+            profile_enhancement = self.user_profile.get_system_prompt_enhancement()
+            full_prompt = f"{base_prompt}\n\n=== User Personalization ===\n{profile_enhancement}"
+        else:
+            full_prompt = base_prompt
+        
+        # Insert at beginning
+        self.messages.insert(0, ChatCompletionSystemMessageParam(
+            role="system",
+            content=full_prompt
+        ))
