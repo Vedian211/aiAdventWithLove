@@ -1,18 +1,100 @@
-### Prerequisites
-    Python 3.8+
-    Virtual environment (recommended)
+# AI Advent With Love
 
-### Setup:
-#### 1. Create Virtual Environment
-    python3 -m venv venv
-    source venv/bin/activate
-#### 2. Install Dependencies
-    pip install -e .
-#### 3. Set Environment Variables
-    For OpenAI integration, set your API key:
-    export OPENAI_API_KEY='your-openai-api-key-here'
+An advanced AI conversational agent with memory management, context optimization, and task tracking capabilities.
+
+## Prerequisites
+
+- Python 3.8+
+- Virtual environment (recommended)
+
+## Setup
+
+### 1. Create Virtual Environment
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+### 2. Install Dependencies
+```bash
+pip install -e .
+```
+
+### 3. Set Environment Variables
+```bash
+export OPENAI_API_KEY='your-openai-api-key-here'
+```
+
+## Usage
+
+The project provides three main CLI tools:
+
+### Agent (Main Interactive CLI)
+```bash
+agent
+```
+Interactive conversational agent with session management, profiles, and memory strategies.
+
+### Ask AI (Simple Query Tool)
+```bash
+ask-ai
+```
+Simple CLI for one-off questions with strategy selection:
+- `-p1`: Simple API call
+- `-p2`: Step-by-step solving
+- `-p3`: Auto-prompt optimization
+- `-p4`: Group of experts (parallel)
+- `-t <value>`: Set temperature (0-2)
+
+### Compare Models
+```bash
+compare-models
+```
+Compare responses from different AI models side-by-side.
 
 ## Features
+
+### Session Management
+
+The agent supports persistent conversation sessions:
+
+- **Create Sessions**: Start new conversations with different contexts
+- **Load Sessions**: Resume previous conversations with full history
+- **Switch Sessions**: Move between different conversation threads
+- **Delete Sessions**: Remove unwanted sessions
+
+Sessions are stored in SQLite database (`src/aiadvent/history/conversations.db`) and persist across restarts.
+
+### Memory Strategies
+
+The agent supports multiple memory management strategies to handle context window limits:
+
+#### 1. Sliding Window (Default)
+- Keeps recent messages in full detail
+- Optionally compresses older messages into summaries
+- Toggle compression: `/compression [on|off|status]`
+
+#### 2. Sticky Facts
+- Extracts and preserves key facts from conversations
+- Facts persist across context window resets
+- View stored facts: `/facts`
+- Categories: goal, constraints, preferences, decisions, agreements
+
+#### 3. Branching
+- Create checkpoints at any point in conversation
+- Branch from checkpoints to explore alternatives
+- Switch between branches without losing history
+- Commands:
+  - `/checkpoint <name>` - Create checkpoint
+  - `/checkpoint` - List checkpoints
+  - `/branch` - List branches
+  - `/branch create <checkpoint_id>` - Create branch
+  - `/branch switch <branch_id>` - Switch branch
+
+#### 4. Memory Layers
+- Combines long-term memory with sticky facts
+- Automatically extracts user profile information
+- Stores solutions and knowledge across sessions
 
 ### Token Counting
 The agent tracks and displays token usage for each conversation exchange:
@@ -27,9 +109,33 @@ After each response, you'll see:
 ```
 
 ### Model Configuration
-- **Model**: GPT-4 (8,192 token context window)
-- **Warning Threshold**: 80% (6,553 tokens)
+- **Model**: gpt-4o-mini (5,000 token context window)
+- **Warning Threshold**: 80% (4,000 tokens)
 - When approaching the limit, use `/clear` to reset conversation history
+
+### Available Commands
+
+The agent CLI supports the following commands:
+
+**General:**
+- `/help` - Show help message with all commands
+- `/exit` or `/quit` - Exit the session
+- `/clear` - Clear conversation history
+- `/state` - Show current task state
+- `/sessions` - Switch to another session
+- `/delete` - Delete a session
+
+**Personalization:**
+- `/profile create` - Create new user profile
+- `/profile list` - List all profiles
+- `/profile switch <id>` - Switch to different profile
+- `/profile show` - Show current profile settings
+- `/profile clear` - Delete all profiles
+
+**Strategy-Specific Commands:**
+- Sliding Window: `/compression [on|off|status]`
+- Sticky Facts: `/facts`
+- Branching: `/checkpoint`, `/branch` (see Branching section above)
 
 ### Testing Token Counting
 Run test scenarios to validate token counting:
