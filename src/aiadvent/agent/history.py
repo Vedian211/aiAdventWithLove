@@ -173,6 +173,20 @@ class HistoryManager:
                 )
             """)
             
+            # Task states table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS task_states (
+                    session_id INTEGER NOT NULL,
+                    phase TEXT,
+                    step INTEGER DEFAULT 0,
+                    total_steps INTEGER DEFAULT 0,
+                    action_description TEXT,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (session_id),
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                )
+            """)
+            
             # Create indexes
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, sequence)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_facts_session ON sticky_facts(session_id)")
@@ -551,3 +565,27 @@ class HistoryManager:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.execute("DELETE FROM user_profiles")
             conn.commit()
+    
+    def save_task_state(self, session_id: int, state: dict):
+        """Save task state for a session"""
+        now = int(datetime.now().timestamp())
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute(
+                """INSERT OR REPLACE INTO task_states 
+                (session_id, phase, step, total_steps, action_description, updated_at) 
+                VALUES (?, ?, ?, ?, ?, ?)""",
+                (session_id, state.get("phase"), state.get("step", 0), 
+                 state.get("total_steps", 0), state.get("action_description", ""), now)
+            )
+            conn.commit()
+    
+    def load_task_state(self, session_id: int) -> Optional[dict]:
+        """Load task state for a session"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT phase, step, total_steps, action_description FROM task_states WHERE session_id = ?",
+                (session_id,)
+            ).fetchone()
+            return dict(row) if row else None

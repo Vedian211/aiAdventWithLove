@@ -191,13 +191,33 @@ def start():
             token_count = agent.count_tokens()
             percentage = int((token_count / agent.TOKEN_LIMIT) * 100)
             
-            console.print(f"[{percentage}%] > ", style="bold green", end="")
+            # Build prompt with task state indicator
+            state_display = agent.task_state.get_display()
+            prompt = f"[{percentage}%]"
+            if state_display:
+                prompt += f" {state_display}"
+            prompt += " > "
+            
+            console.print(prompt, style="bold green", end="")
             user_input = input()
             
             if user_input.lower() in ['/exit', '/quit']:
                 print(f"\nTotal tokens used in session: {agent.total_tokens_used}")
                 print("Goodbye!")
                 break
+            
+            if user_input == "/state":
+                state = agent.task_state.get_state()
+                if state["phase"]:
+                    print(f"\n=== Task State ===")
+                    print(f"Phase: {state['phase']}")
+                    print(f"Step: {state['step']}/{state['total_steps']}" if state['total_steps'] > 0 else f"Step: {state['step']}")
+                    if state['action_description']:
+                        print(f"Action: {state['action_description']}")
+                    print()
+                else:
+                    print("\nNo active task state.\n")
+                continue
             
             if user_input == "/help":
                 console.print("\n=== Available Commands ===", style="bold cyan")
@@ -206,6 +226,7 @@ def start():
                 print("  /exit       - Exit the session")
                 print("  /quit       - Exit the session")
                 print("  /clear      - Clear conversation history")
+                print("  /state      - Show current task state")
                 print("  /sessions   - Switch to another session")
                 print("  /delete     - Delete a session")
                 
@@ -499,6 +520,11 @@ def start():
                 
                 # Add response to agent's history
                 agent.add_message("assistant", response_content)
+                
+                # Update task state
+                agent.task_state.detect_and_update(response_content)
+                if agent.session_id:
+                    agent.history_manager.save_task_state(agent.session_id, agent.task_state.get_state())
                 
                 # Count response tokens
                 agent.set_last_response_tokens(response_content)

@@ -9,6 +9,7 @@ from .branching import BranchingManager
 from .long_term_memory import LongTermMemoryManager
 from .memory_manager import MemoryManager
 from .user_profile import UserProfile
+from .task_state import TaskStateMachine
 
 
 class Agent:
@@ -32,6 +33,9 @@ class Agent:
         # User profile
         self.user_profile = None
         self.profile_id = None
+        
+        # Task state machine
+        self.task_state = TaskStateMachine(self.client, self.model)
         
         # Compression (sliding window)
         self.compression_enabled = compression_enabled
@@ -104,6 +108,9 @@ class Agent:
         # Reset branching if enabled
         if self.branching_manager:
             self.branching_manager.reset()
+        
+        # Reset task state
+        self.task_state.reset()
     
     def think_stream(self, user_input: str):
         """Process user input and generate streaming response"""
@@ -147,6 +154,11 @@ class Agent:
         
         assistant_message = response.choices[0].message.content
         self.add_message("assistant", assistant_message)
+        
+        # Update task state with both user input and AI response
+        self.task_state.detect_and_update(user_input, assistant_message)
+        if self.session_id:
+            self.history_manager.save_task_state(self.session_id, self.task_state.get_state())
         
         # Count response tokens
         self.set_last_response_tokens(assistant_message)
@@ -275,6 +287,14 @@ class Agent:
                 branch_messages = self.branching_manager.switch_branch(self.branching_manager.current_branch)
                 if branch_messages:
                     self.messages = branch_messages
+        
+        # Restore task state
+        task_state_data = self.history_manager.load_task_state(session_id)
+        if task_state_data:
+            self.task_state.phase = task_state_data.get("phase")
+            self.task_state.step = task_state_data.get("step", 0)
+            self.task_state.total_steps = task_state_data.get("total_steps", 0)
+            self.task_state.action_description = task_state_data.get("action_description", "")
         
         return True
     

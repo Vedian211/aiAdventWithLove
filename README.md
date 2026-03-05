@@ -85,3 +85,47 @@ python tests/test_personalization.py
 - **Language Preference**: Test Russian language responses
 - **Constraints**: Verify no-code and bullet-point constraints
 - **Persistence**: Validate profile loading across sessions
+
+## Task State Machine
+
+The agent includes a Task State Machine that tracks task execution progress through distinct phases:
+
+### States
+- **planning** - Agent is analyzing requirements and creating a plan
+- **execution** - Agent is actively executing the plan
+- **validation** - Agent is verifying results
+- **done** - Task completed
+
+### Features
+- **Automatic Detection**: State transitions are detected from agent responses
+- **Progress Display**: Current state shown in CLI prompt (e.g., `[Planning 2/5] >`)
+- **Persistence**: State survives session restarts
+- **Pause/Resume**: Continue tasks without re-explaining previous steps
+
+### Commands
+
+```bash
+/state    # Display current task state
+```
+
+### State Display
+
+The CLI prompt shows the current state:
+```
+[15%] [Execution 2/5] >    # With step count
+[15%] [Validation] >       # Without step count
+[15%] >                    # No active task
+```
+
+### Testing Task State
+
+Run test scenarios to validate task state machine:
+```bash
+python tests/test_task_state.py
+```
+
+**Test Scenarios:**
+- **State Progression**: Validates transitions through all phases
+- **Persistence**: Verifies state survives session restarts
+- **Pause and Resume**: Tests resuming without repetition
+- **Display Format**: Validates state display formatting
