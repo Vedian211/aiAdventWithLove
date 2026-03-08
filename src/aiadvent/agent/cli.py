@@ -237,6 +237,12 @@ def start():
                 print("  /profile show         - Show current profile settings")
                 print("  /profile clear        - Delete all profiles")
                 
+                print("\nInvariants:")
+                print("  /invariant add              - Add new invariant")
+                print("  /invariant list [category]  - List invariants")
+                print("  /invariant show <id>        - Show invariant details")
+                print("  /invariant delete <id>      - Delete invariant")
+                
                 if agent.strategy == "sliding_window":
                     print("\nSliding Window Strategy:")
                     print("  /compression [on|off|status] - Toggle or check compression")
@@ -373,6 +379,85 @@ def start():
                     print("  /profile switch <id>  - Switch to profile")
                     print("  /profile show         - Show current profile")
                     print("  /profile clear        - Delete all profiles\n")
+                    continue
+            
+            # Invariant commands
+            if user_input.startswith("/invariant"):
+                parts = user_input.split(maxsplit=2)
+                subcommand = parts[1] if len(parts) > 1 else "list"
+                
+                if subcommand == "add":
+                    invariant_id = agent.invariants_manager.create_interactive(agent.session_id)
+                    if invariant_id:
+                        agent._rebuild_system_prompt()
+                        print()
+                    continue
+                
+                elif subcommand == "list":
+                    category = parts[2] if len(parts) > 2 else None
+                    invariants = agent.invariants_manager.get_invariants(agent.session_id, category)
+                    
+                    if not invariants:
+                        print("\nNo invariants defined. Use '/invariant add' to create one.\n")
+                    else:
+                        print("\n=== Invariants ===")
+                        for inv in invariants:
+                            priority_icon = "🔴" if inv['priority'] == 'critical' else "🟡" if inv['priority'] == 'high' else "🟢"
+                            print(f"{priority_icon} [{inv['category'].upper()}] {inv['title']} (ID: {inv['id']})")
+                            print(f"   {inv['description']}")
+                            if inv['rationale']:
+                                print(f"   Rationale: {inv['rationale']}")
+                            print()
+                    continue
+                
+                elif subcommand == "show":
+                    if len(parts) < 3:
+                        print("Usage: /invariant show <id>\n")
+                        continue
+                    
+                    try:
+                        inv_id = int(parts[2])
+                        invariants = agent.invariants_manager.get_invariants(agent.session_id)
+                        inv = next((i for i in invariants if i['id'] == inv_id), None)
+                        
+                        if inv:
+                            from datetime import datetime
+                            priority_icon = "🔴" if inv['priority'] == 'critical' else "🟡" if inv['priority'] == 'high' else "🟢"
+                            print(f"\n{priority_icon} Invariant #{inv['id']}")
+                            print(f"Category: {inv['category']}")
+                            print(f"Title: {inv['title']}")
+                            print(f"Description: {inv['description']}")
+                            if inv['rationale']:
+                                print(f"Rationale: {inv['rationale']}")
+                            print(f"Priority: {inv['priority']}")
+                            created = datetime.fromtimestamp(inv['created_at']).strftime('%Y-%m-%d %H:%M:%S')
+                            print(f"Created: {created}\n")
+                        else:
+                            print(f"✗ Invariant {inv_id} not found\n")
+                    except ValueError:
+                        print("Invalid invariant ID\n")
+                    continue
+                
+                elif subcommand == "delete":
+                    if len(parts) < 3:
+                        print("Usage: /invariant delete <id>\n")
+                        continue
+                    
+                    try:
+                        inv_id = int(parts[2])
+                        agent.invariants_manager.delete_invariant(inv_id)
+                        agent._rebuild_system_prompt()
+                        print(f"✓ Invariant {inv_id} deleted\n")
+                    except ValueError:
+                        print("Invalid invariant ID\n")
+                    continue
+                
+                else:
+                    print("\nInvariant commands:")
+                    print("  /invariant add              - Add new invariant")
+                    print("  /invariant list [category]  - List invariants")
+                    print("  /invariant show <id>        - Show invariant details")
+                    print("  /invariant delete <id>      - Delete invariant\n")
                     continue
             
             if user_input.startswith("/compression"):

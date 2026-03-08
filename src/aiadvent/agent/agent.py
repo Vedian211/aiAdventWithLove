@@ -10,6 +10,7 @@ from .long_term_memory import LongTermMemoryManager
 from .memory_manager import MemoryManager
 from .user_profile import UserProfile
 from .task_state import TaskStateMachine
+from .invariants import InvariantsManager
 
 
 class Agent:
@@ -36,6 +37,9 @@ class Agent:
         
         # Task state machine
         self.task_state = TaskStateMachine(self.client, self.model)
+        
+        # Invariants
+        self.invariants_manager = InvariantsManager(self.history_manager, self.client, self.model)
         
         # Compression (sliding window)
         self.compression_enabled = compression_enabled
@@ -140,6 +144,20 @@ class Agent:
         self.last_prompt_tokens = self.token_counter.count_message(user_input)
         
         self.add_message("user", user_input)
+        
+        # Check for invariant violations if session has invariants
+        if self.session_id:
+            invariants = self.invariants_manager.get_invariants(self.session_id)
+            if invariants:
+                violates, violated_list, explanation = self.invariants_manager.check_violation(
+                    self.session_id, user_input
+                )
+                if violates:
+                    # Generate refusal response
+                    refusal_message = self._generate_invariant_refusal(violated_list, explanation)
+                    self.add_message("assistant", refusal_message)
+                    self.set_last_response_tokens(refusal_message)
+                    return refusal_message
         
         # Get messages to send based on strategy
         messages_to_send = self._prepare_messages()
@@ -296,6 +314,9 @@ class Agent:
             self.task_state.total_steps = task_state_data.get("total_steps", 0)
             self.task_state.action_description = task_state_data.get("action_description", "")
         
+        # Rebuild system prompt with invariants
+        self._rebuild_system_prompt()
+        
         return True
     
     def list_sessions(self):
@@ -403,7 +424,7 @@ class Agent:
         return False
     
     def _rebuild_system_prompt(self):
-        """Rebuild system prompt with profile enhancements"""
+        """Rebuild system prompt with profile enhancements and invariants"""
         # Remove old system message if exists
         if self.messages and self.messages[0].get("role") == "system":
             self.messages.pop(0)
@@ -411,14 +432,29 @@ class Agent:
         # Build new system prompt
         base_prompt = self.system_prompt or "You are a helpful AI assistant."
         
+        # Add profile enhancements
         if self.user_profile:
             profile_enhancement = self.user_profile.get_system_prompt_enhancement()
-            full_prompt = f"{base_prompt}\n\n=== User Personalization ===\n{profile_enhancement}"
-        else:
-            full_prompt = base_prompt
+            base_prompt = f"{base_prompt}\n\n=== User Personalization ===\n{profile_enhancement}"
+        
+        # Add invariants
+        if self.session_id:
+            invariants_text = self.invariants_manager.format_for_prompt(self.session_id)
+            if invariants_text:
+                base_prompt += invariants_text
         
         # Insert at beginning
         self.messages.insert(0, ChatCompletionSystemMessageParam(
             role="system",
-            content=full_prompt
+            content=base_prompt
         ))
+    
+    def _generate_invariant_refusal(self, violated_invariants: list, explanation: str) -> str:
+        """Generate a refusal message when invariants are violated"""
+        message = "❌ **Cannot proceed - Invariant Violation**\n\n"
+        message += f"Your request conflicts with the following invariant(s):\n"
+        for inv in violated_invariants:
+            message += f"- {inv}\n"
+        message += f"\n**Explanation:**\n{explanation}\n\n"
+        message += "Please modify your request to respect these constraints, or use `/invariants delete` to remove the invariant if it's no longer needed."
+        return message

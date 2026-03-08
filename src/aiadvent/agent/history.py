@@ -187,6 +187,22 @@ class HistoryManager:
                 )
             """)
             
+            # Invariants table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS invariants (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    category TEXT NOT NULL CHECK(category IN ('architecture', 'technical', 'stack', 'business')),
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    rationale TEXT,
+                    priority TEXT DEFAULT 'high' CHECK(priority IN ('critical', 'high', 'medium')),
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                )
+            """)
+            
             # Create indexes
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, sequence)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_facts_session ON sticky_facts(session_id)")
@@ -197,6 +213,7 @@ class HistoryManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_profile_category ON user_profile(category)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_solutions_type ON learned_solutions(problem_type)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_topic ON knowledge_base(topic)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_invariants_session ON invariants(session_id, category)")
             
             conn.commit()
     
@@ -589,3 +606,17 @@ class HistoryManager:
                 (session_id,)
             ).fetchone()
             return dict(row) if row else None
+    
+    def _execute(self, query: str, params: tuple = ()):
+        """Execute a query and return cursor"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA foreign_keys = ON")
+            cursor = conn.execute(query, params)
+            conn.commit()
+            return cursor
+    
+    def _fetch_all(self, query: str, params: tuple = ()):
+        """Fetch all rows from a query"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(query, params)
+            return cursor.fetchall()

@@ -132,6 +132,12 @@ The agent CLI supports the following commands:
 - `/profile show` - Show current profile settings
 - `/profile clear` - Delete all profiles
 
+**Invariants:**
+- `/invariant add` - Add new invariant
+- `/invariant list [category]` - List all or filtered invariants
+- `/invariant show <id>` - Show invariant details
+- `/invariant delete <id>` - Delete an invariant
+
 **Strategy-Specific Commands:**
 - Sliding Window: `/compression [on|off|status]`
 - Sticky Facts: `/facts`
@@ -235,3 +241,66 @@ python tests/test_task_state.py
 - **Persistence**: Verifies state survives session restarts
 - **Pause and Resume**: Tests resuming without repetition
 - **Display Format**: Validates state display formatting
+
+## Invariants
+
+The agent supports invariants - unchangeable constraints that guide AI reasoning and prevent violations of architectural, technical, or business rules.
+
+### Features
+
+- **Proactive Enforcement**: User requests are checked against invariants before processing
+- **Clear Refusals**: When violations are detected, the agent explains which invariant was violated and why
+- **Persistence**: Invariants are stored in the database and persist across sessions
+- **Categories**: Architecture, Technical, Stack, Business rules
+- **Priority Levels**: Critical, High, Medium
+
+### Commands
+
+```bash
+/invariant add              # Add new invariant interactively
+/invariant list [category]  # List all or filtered invariants
+/invariant show <id>        # Show detailed invariant information
+/invariant delete <id>      # Delete an invariant
+```
+
+### Usage Example
+
+```bash
+# Add an invariant
+/invariant add
+
+# Follow prompts:
+Category: 1 (Architecture)
+Title: Microservices Only
+Description: All solutions must use microservices architecture
+Rationale: Company standard for scalability
+Priority: 1 (Critical)
+
+# Now try to violate it
+> Can you help me build a monolithic Flask app?
+
+# Agent will refuse:
+❌ Cannot proceed - Invariant Violation
+
+Your request conflicts with the following invariant(s):
+- Microservices Only
+
+Explanation: Your request asks for a monolithic application, 
+which violates the architectural constraint...
+```
+
+### Testing Invariants
+
+Run test scenarios to validate invariant enforcement:
+```bash
+python tests/test_invariants.py
+```
+
+**Test Scenarios:**
+- **Architecture Invariant**: Tests microservices-only constraint
+- **Technical Stack Invariant**: Tests Python/PostgreSQL-only constraint
+- **Business Rules Invariant**: Tests GDPR compliance enforcement
+- **Multiple Invariants**: Tests enforcement of multiple constraints
+- **Persistence**: Verifies invariants survive session restarts
+
+Each test includes 10+ message exchanges with real API calls to verify proper enforcement.
