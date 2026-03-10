@@ -1,16 +1,11 @@
 from openai import OpenAI
 from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam
 import tiktoken
-from .history import HistoryManager
-from .token_counter import TokenCounter
-from .context_compressor import ContextCompressor
-from .sticky_facts import StickyFactsManager
-from .branching import BranchingManager
-from .long_term_memory import LongTermMemoryManager
-from .memory_manager import MemoryManager
-from .user_profile import UserProfile
-from .task_state import TaskStateMachine
-from .invariants import InvariantsManager
+from .core import HistoryManager
+from .utils import TokenCounter
+from .memory import ContextCompressor, StickyFactsManager, BranchingManager, LongTermMemoryManager, MemoryManager
+from .features import UserProfile, InvariantsManager
+from .state import TaskStateMachine
 
 
 class Agent:

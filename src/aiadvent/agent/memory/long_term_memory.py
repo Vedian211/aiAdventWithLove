@@ -1,6 +1,6 @@
 from openai import OpenAI
 from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam
-from .history import HistoryManager
+from ..core import HistoryManager
 import json
 
 

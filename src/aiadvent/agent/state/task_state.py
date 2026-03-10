@@ -2,8 +2,7 @@ import re
 import json
 from typing import Optional
 from .transition_controller import TransitionController
-from .approval_gates import ApprovalGates
-from .completion_validator import CompletionValidator
+from ..utils import ApprovalGates, CompletionValidator
 
 
 class TaskStateMachine:
