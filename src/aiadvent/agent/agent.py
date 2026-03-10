@@ -103,6 +103,26 @@ class Agent:
         """Get list of available MCP tools."""
         return self.mcp_tools
     
+    async def call_mcp_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
+        """
+        Call an MCP tool with given arguments.
+        
+        Args:
+            tool_name: Name of the tool to call
+            arguments: Dictionary of arguments for the tool
+            
+        Returns:
+            Tool execution result
+        """
+        if not self.mcp_client:
+            raise RuntimeError("MCP client not initialized. Call init_mcp() first.")
+        
+        try:
+            result = await self.mcp_client.call_tool(tool_name, arguments)
+            return result
+        except Exception as e:
+            raise RuntimeError(f"Failed to call MCP tool '{tool_name}': {e}")
+    
     def add_message(self, role: str, content: str):
         """Add a message to conversation history"""
         if role == "user":

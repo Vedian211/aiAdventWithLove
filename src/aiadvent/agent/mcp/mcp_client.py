@@ -62,6 +62,36 @@ class MCPClient:
             
         return tools
     
+    async def call_tool(self, name: str, arguments: Dict[str, Any]) -> Any:
+        """
+        Call an MCP tool with given arguments.
+        
+        Args:
+            name: Name of the tool to call
+            arguments: Dictionary of arguments for the tool
+            
+        Returns:
+            Tool execution result
+        """
+        if not self.session:
+            raise RuntimeError("Not connected to MCP server. Call connect_stdio() first.")
+        
+        response = await self.session.call_tool(name, arguments)
+        
+        # Extract content from response
+        if response.content:
+            # Return first content item (most common case)
+            if len(response.content) > 0:
+                content_item = response.content[0]
+                # Handle different content types
+                if hasattr(content_item, 'text'):
+                    return content_item.text
+                elif hasattr(content_item, 'data'):
+                    return content_item.data
+                return content_item
+        
+        return response
+    
     async def disconnect(self) -> None:
         """Close the connection to the MCP server."""
         if self.exit_stack:
