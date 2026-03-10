@@ -81,8 +81,8 @@ async def test_figma_tool_invocation():
         
         # Test 4: Tool Invocation
         print("\n✅ Test 4: Tool Invocation")
-        print("   ⏳ Waiting 60 seconds to avoid rate limit...")
-        await asyncio.sleep(60)
+        # print("   ⏳ Waiting 60 seconds to avoid rate limit...")
+        # await asyncio.sleep(60)
         
         try:
             result = await agent.call_mcp_tool(
