@@ -39,7 +39,22 @@ def select_or_create_session(agent: Agent) -> bool:
             # Create new session
             if (sessions and choice_num == len(sessions) + 1) or (not sessions and choice_num == 1):
                 agent.create_session("New Chat")
-                print(f"✓ Created new session\n")
+                
+                # Ask about strict phase enforcement
+                print("\n=== Phase Enforcement ===")
+                print("Enable strict phase sequence enforcement?")
+                print("(Requires: Planning → Execution → Validation → Done)")
+                phase_choice = input("Enable? (y/n) [n]: ").strip().lower()
+                
+                if phase_choice == 'y':
+                    invariant_id = agent.invariants_manager.create_phase_sequence_invariant(agent.session_id)
+                    print(f"✓ Strict phase enforcement enabled (Invariant ID: {invariant_id})")
+                    # Rebuild system prompt to include the invariant
+                    agent._rebuild_system_prompt()
+                else:
+                    print("✓ Phase enforcement disabled (flexible workflow)")
+                
+                print(f"\n✓ Created new session\n")
                 return True
             
             # Load existing session
@@ -227,8 +242,10 @@ def start():
                 print("  /quit       - Exit the session")
                 print("  /clear      - Clear conversation history")
                 print("  /state      - Show current task state")
+                print("  /approve    - Approve transition to next phase")
                 print("  /sessions   - Switch to another session")
                 print("  /delete     - Delete a session")
+                print("  /delete-all - Delete ALL sessions")
                 
                 print("\nPersonalization:")
                 print("  /profile create       - Create new user profile")
@@ -242,6 +259,7 @@ def start():
                 print("  /invariant list [category]  - List invariants")
                 print("  /invariant show <id>        - Show invariant details")
                 print("  /invariant delete <id>      - Delete invariant")
+                print("  /invariant clear            - Delete all invariants")
                 
                 if agent.strategy == "sliding_window":
                     print("\nSliding Window Strategy:")
@@ -256,6 +274,31 @@ def start():
                     print("  /branch                      - List all branches")
                     print("  /branch create <checkpoint>  - Create branch from checkpoint")
                     print("  /branch switch <branch_id>   - Switch to a branch")
+                
+                print()
+                continue
+            
+            if user_input == "/approve":
+                print()
+                
+                # Use streaming for typing animation
+                spinner = Spinner("dots", text="Thinking...")
+                
+                with Live(spinner, console=console, refresh_per_second=10) as live:
+                    # Get the response (which calls AI internally)
+                    response = agent.handle_phase_transition()
+                    
+                    # Simulate streaming display
+                    time.sleep(0.1)
+                    live.update(Markdown(response))
+                
+                # Display token statistics
+                stats = agent.get_token_stats()
+                print(f"\n[Tokens - Prompt: {stats['prompt']} | History: {stats['history']} | Response: {stats['response']}]")
+                
+                # Save to database
+                agent.save_message_to_db("user", user_input, stats['prompt'])
+                agent.save_message_to_db("assistant", response, stats['response'])
                 
                 print()
                 continue
@@ -314,6 +357,21 @@ def start():
                         print("Invalid choice.\n")
                 except (ValueError, KeyboardInterrupt):
                     print("\nCancelled.\n")
+                continue
+            
+            if user_input == "/delete-all":
+                print("\n⚠️  WARNING: This will delete ALL sessions and data!")
+                confirm = input("Type 'DELETE ALL' to confirm: ").strip()
+                
+                if confirm == "DELETE ALL":
+                    agent.history_manager.delete_all_sessions()
+                    print("✓ All sessions deleted\n")
+                    print("Creating new session...")
+                    if not select_or_create_session(agent):
+                        print("Goodbye!")
+                        break
+                else:
+                    print("Cancelled.\n")
                 continue
             
             # Profile commands
@@ -452,12 +510,30 @@ def start():
                         print("Invalid invariant ID\n")
                     continue
                 
+                elif subcommand == "clear":
+                    invariants = agent.invariants_manager.get_invariants(agent.session_id)
+                    if not invariants:
+                        print("\nNo invariants to delete.\n")
+                        continue
+                    
+                    print(f"\n⚠️  WARNING: This will delete ALL {len(invariants)} invariant(s) for this session!")
+                    confirm = input("Type 'yes' to confirm: ").strip().lower()
+                    
+                    if confirm == "yes":
+                        agent.invariants_manager.delete_all_invariants(agent.session_id)
+                        agent._rebuild_system_prompt()
+                        print("✓ All invariants deleted\n")
+                    else:
+                        print("Cancelled.\n")
+                    continue
+                
                 else:
                     print("\nInvariant commands:")
                     print("  /invariant add              - Add new invariant")
                     print("  /invariant list [category]  - List invariants")
                     print("  /invariant show <id>        - Show invariant details")
-                    print("  /invariant delete <id>      - Delete invariant\n")
+                    print("  /invariant delete <id>      - Delete invariant")
+                    print("  /invariant clear            - Delete all invariants\n")
                     continue
             
             if user_input.startswith("/compression"):
@@ -588,26 +664,29 @@ def start():
                     stream = agent.think_stream(user_input)
                     
                     response_content = ""
-                    first_chunk = True
                     
                     for chunk in stream:
                         if chunk.choices and chunk.choices[0].delta.content:
-                            if first_chunk:
-                                time.sleep(0.1)
-                                first_chunk = False
                             content = chunk.choices[0].delta.content
                             response_content += content
-                            live.update(Markdown(response_content))
                         
                         # Track token usage from stream
                         if chunk.usage:
                             agent.total_tokens_used += chunk.usage.total_tokens
+                    
+                    # Show complete response at once
+                    live.update(Markdown(response_content))
                 
-                # Add response to agent's history
+                # Add confirmation prompt if needed
+                confirmation_prompt = agent.task_state.get_confirmation_prompt()
+                if confirmation_prompt:
+                    console.print(confirmation_prompt)
+                
+                # Add response to agent's history (without confirmation prompt)
                 agent.add_message("assistant", response_content)
                 
                 # Update task state
-                agent.task_state.detect_and_update(response_content)
+                agent.task_state.detect_and_update(user_input, response_content)
                 if agent.session_id:
                     agent.history_manager.save_task_state(agent.session_id, agent.task_state.get_state())
                 

@@ -302,6 +302,13 @@ class HistoryManager:
             conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
             conn.commit()
     
+    def delete_all_sessions(self):
+        """Delete all sessions and related data"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("DELETE FROM sessions")
+            conn.commit()
+    
     def update_session_name(self, session_id: int, name: str):
         """Update session name"""
         with sqlite3.connect(self.db_path) as conn:

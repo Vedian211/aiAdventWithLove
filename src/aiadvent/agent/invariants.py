@@ -67,6 +67,13 @@ class InvariantsManager:
             (invariant_id,)
         )
     
+    def delete_all_invariants(self, session_id: int):
+        """Delete all invariants for a session"""
+        self.history_manager._execute(
+            "DELETE FROM invariants WHERE session_id = ?",
+            (session_id,)
+        )
+    
     def format_for_prompt(self, session_id: int) -> str:
         """Format all invariants as text for system prompt injection"""
         invariants = self.get_invariants(session_id)
@@ -120,32 +127,73 @@ class InvariantsManager:
         if not invariants:
             return False, [], None
         
-        invariants_text = self.format_for_prompt(session_id)
+        # Check if there's a phase sequence invariant
+        has_phase_invariant = any('Phase Sequence' in inv.get('title', '') for inv in invariants)
+        if not has_phase_invariant:
+            # No phase invariant, no violation
+            return False, [], None
         
-        prompt = f"""{invariants_text}
+        # Extract current phase from context
+        current_phase = None
+        if "[Current Phase:" in proposed_solution:
+            import re
+            match = re.search(r'\[Current Phase: (\w+)\]', proposed_solution)
+            if match:
+                current_phase = match.group(1)
+                # Remove phase marker from user request
+                proposed_solution = re.sub(r'\[Current Phase: \w+\]\n\n', '', proposed_solution)
+        
+        if not current_phase:
+            # Can't check without knowing current phase
+            return False, [], None
+        
+        # First, detect what phase the user is requesting
+        detection_prompt = f"""Analyze this user request and determine what phase they want to transition to.
 
-PROPOSED SOLUTION:
-{proposed_solution}
+USER REQUEST: {proposed_solution}
 
-Analyze if this solution violates any invariants. Respond in JSON format:
-{{
-    "violates": true or false,
-    "violated_invariants": ["invariant title 1", "invariant title 2"],
-    "explanation": "Detailed explanation of violations"
-}}"""
+PHASE KEYWORDS:
+- validation: "test", "verify", "validate", "check", "prove"
+- execution: "implement", "code", "create", "write", "build", "develop"
+- planning: "plan", "design", "outline", "strategy"
+- done: "complete", "finish", "done"
+
+Respond with ONLY ONE WORD: planning, execution, validation, done, or none"""
         
         try:
-            response = self.client.chat.completions.create(
+            # Detect requested phase
+            response1 = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are an invariant violation detector. Respond only with valid JSON."},
-                    {"role": "user", "content": prompt}
+                    {"role": "system", "content": "Detect the phase from keywords. Respond with ONE word only."},
+                    {"role": "user", "content": detection_prompt}
                 ],
-                temperature=0
+                temperature=0,
+                max_tokens=10
             )
             
-            result = json.loads(response.choices[0].message.content)
-            return result.get('violates', False), result.get('violated_invariants', []), result.get('explanation', '')
+            requested_phase = response1.choices[0].message.content.strip().lower()
+            
+            # Check if this is a forbidden transition
+            forbidden_transitions = [
+                ("planning", "validation"),
+                ("validation", "execution")
+            ]
+            
+            is_forbidden = (current_phase, requested_phase) in forbidden_transitions
+            
+            if is_forbidden:
+                if current_phase == "planning" and requested_phase == "validation":
+                    explanation = "Cannot test without implementing code first."
+                elif current_phase == "validation" and requested_phase == "execution":
+                    explanation = "Cannot implement after validation without re-planning first."
+                else:
+                    explanation = f"Transition from {current_phase} to {requested_phase} is not allowed."
+                
+                return True, ["Phase Sequence"], explanation
+            
+            return False, [], None
+            
         except Exception as e:
             print(f"Warning: Violation check failed: {e}")
             return False, [], None
@@ -191,3 +239,37 @@ Analyze if this solution violates any invariants. Respond in JSON format:
         print(f"\n✓ Invariant added (ID: {invariant_id})")
         
         return invariant_id
+    
+    def create_phase_sequence_invariant(self, session_id: int) -> int:
+        """Create automatic phase sequence invariant for strict workflow enforcement"""
+        title = "Strict Phase Sequence"
+        description = (
+            "ONLY 2 TRANSITIONS ARE FORBIDDEN:\n"
+            "\n"
+            "1. Planning → Validation\n"
+            "   (Cannot test without implementing code first)\n"
+            "\n"
+            "2. Validation → Execution\n"
+            "   (Cannot implement after validation, must return to Planning first)\n"
+            "\n"
+            "ALL OTHER TRANSITIONS ARE ALLOWED, including:\n"
+            "- Planning → Execution (implement the plan)\n"
+            "- Execution → Validation (test the code)\n"
+            "- Any phase → Planning (refine)\n"
+            "- Any phase → Done (satisfied)"
+        )
+        rationale = "Ensures code is implemented before testing, and changes go through planning."
+        
+        return self.add_invariant(
+            session_id=session_id,
+            category='technical',
+            title=title,
+            description=description,
+            rationale=rationale,
+            priority='critical'
+        )
+    
+    def has_phase_sequence_invariant(self, session_id: int) -> bool:
+        """Check if session has phase sequence invariant"""
+        invariants = self.get_invariants(session_id)
+        return any(inv['title'] == 'Strict Phase Sequence' for inv in invariants)

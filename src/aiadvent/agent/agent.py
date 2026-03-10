@@ -37,6 +37,8 @@ class Agent:
         
         # Task state machine
         self.task_state = TaskStateMachine(self.client, self.model)
+        # Set default phase to planning
+        self.task_state.phase = "planning"
         
         # Invariants
         self.invariants_manager = InvariantsManager(self.history_manager, self.client, self.model)
@@ -138,7 +140,7 @@ class Agent:
         
         return stream
     
-    def think(self, user_input: str) -> str:
+    def think(self, user_input: str, skip_phase_detection: bool = False) -> str:
         """Process user input and generate response using OpenAI API"""
         # Count prompt tokens
         self.last_prompt_tokens = self.token_counter.count_message(user_input)
@@ -149,8 +151,13 @@ class Agent:
         if self.session_id:
             invariants = self.invariants_manager.get_invariants(self.session_id)
             if invariants:
+                # Build context for violation check (include current phase)
+                context = user_input
+                if self.task_state.phase:
+                    context = f"[Current Phase: {self.task_state.phase}]\n\n{user_input}"
+                
                 violates, violated_list, explanation = self.invariants_manager.check_violation(
-                    self.session_id, user_input
+                    self.session_id, context
                 )
                 if violates:
                     # Generate refusal response
@@ -171,12 +178,19 @@ class Agent:
         )
         
         assistant_message = response.choices[0].message.content
+        
+        # Add confirmation prompt at the end
+        confirmation_prompt = self.task_state.get_confirmation_prompt()
+        if confirmation_prompt:
+            assistant_message += confirmation_prompt
+        
         self.add_message("assistant", assistant_message)
         
-        # Update task state with both user input and AI response
-        self.task_state.detect_and_update(user_input, assistant_message)
-        if self.session_id:
-            self.history_manager.save_task_state(self.session_id, self.task_state.get_state())
+        # Update task state with both user input and AI response (unless skipped)
+        if not skip_phase_detection:
+            self.task_state.detect_and_update(user_input, assistant_message)
+            if self.session_id:
+                self.history_manager.save_task_state(self.session_id, self.task_state.get_state())
         
         # Count response tokens
         self.set_last_response_tokens(assistant_message)
@@ -186,6 +200,38 @@ class Agent:
             self.memory_manager.process_exchange(user_input, assistant_message)
         
         return assistant_message
+    
+    def handle_phase_transition(self) -> str:
+        """Handle transition to next phase and generate appropriate prompt"""
+        result = self.task_state.transition_to_next_phase()
+        
+        if not result["success"]:
+            return f"⚠️ Cannot transition: {result['error']}"
+        
+        # Save state
+        if self.session_id:
+            self.history_manager.save_task_state(self.session_id, self.task_state.get_state())
+        
+        # Generate prompt based on action
+        action = result.get("action")
+        
+        if action == "implement_plan":
+            prompt = "Now implement the plan. Provide the complete code implementation based on our discussion. Show all files and code needed."
+        elif action == "validate_implementation":
+            prompt = "Now validate the implementation. Run tests and verify that the code works correctly. Show the test results."
+        elif action == "task_complete":
+            message = "✓ Task complete! Feel free to ask any new questions."
+            confirmation_prompt = self.task_state.get_confirmation_prompt()
+            return message + confirmation_prompt if confirmation_prompt else message
+        elif action == "new_task":
+            message = "✓ Ready for a new task. What would you like to work on?"
+            confirmation_prompt = self.task_state.get_confirmation_prompt()
+            return message + confirmation_prompt if confirmation_prompt else message
+        else:
+            return f"✓ Transitioned to {result['to']} phase."
+        
+        # Call AI with the generated prompt (skip auto phase detection)
+        return self.think(prompt, skip_phase_detection=True)
     
     def _prepare_messages(self):
         """Prepare messages based on active strategy"""
@@ -451,6 +497,11 @@ class Agent:
     
     def _generate_invariant_refusal(self, violated_invariants: list, explanation: str) -> str:
         """Generate a refusal message when invariants are violated"""
+        # For phase sequence violations, use a brief, clear format
+        if any("Phase" in inv or "Sequence" in inv for inv in violated_invariants):
+            return f"⚠️ {explanation}"
+        
+        # For other invariants, use the standard format
         message = "❌ **Cannot proceed - Invariant Violation**\n\n"
         message += f"Your request conflicts with the following invariant(s):\n"
         for inv in violated_invariants:
