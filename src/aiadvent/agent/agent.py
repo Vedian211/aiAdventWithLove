@@ -1,11 +1,15 @@
 from openai import OpenAI
 from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam
 import tiktoken
+import asyncio
+from typing import Optional, List, Dict, Any
 from .core import HistoryManager
 from .utils import TokenCounter
 from .memory import ContextCompressor, StickyFactsManager, BranchingManager, LongTermMemoryManager, MemoryManager
 from .features import UserProfile, InvariantsManager
 from .state import TaskStateMachine
+from .mcp import MCPClient
+from .mcp.config import MCPServerConfig
 
 
 class Agent:
@@ -14,7 +18,7 @@ class Agent:
     TOKEN_LIMIT = 5000
     WARNING_THRESHOLD = 0.8
     
-    def __init__(self, api_key: str, model: str = "gpt-4o-mini", system_prompt: str = None, compression_enabled: bool = False, strategy: str = "sliding_window"):
+    def __init__(self, api_key: str, model: str = "gpt-4o-mini", system_prompt: str = None, compression_enabled: bool = False, strategy: str = "sliding_window", mcp_server_config: Optional[MCPServerConfig] = None):
         self.client = OpenAI(api_key=api_key)
         self.model = model
         self.system_prompt = system_prompt
@@ -57,6 +61,11 @@ class Agent:
             self.long_term_memory = None
             self.memory_manager = None
         
+        # MCP integration
+        self.mcp_client: Optional[MCPClient] = None
+        self.mcp_tools: List[Dict[str, Any]] = []
+        self.mcp_server_config = mcp_server_config
+        
         # Token tracking for last exchange
         self.last_prompt_tokens = 0
         self.last_response_tokens = 0
@@ -68,6 +77,31 @@ class Agent:
                 role="system",
                 content=system_prompt
             ))
+    
+    async def init_mcp(self) -> None:
+        """Initialize MCP connection and retrieve tools. Must be called explicitly."""
+        if not self.mcp_server_config:
+            raise RuntimeError("No MCP server config provided")
+        await self._init_mcp_connection()
+    
+    async def _init_mcp_connection(self) -> None:
+        """Initialize MCP connection and retrieve tools."""
+        try:
+            self.mcp_client = MCPClient()
+            await self.mcp_client.connect_stdio(
+                command=self.mcp_server_config.command,
+                args=self.mcp_server_config.args,
+                env=self.mcp_server_config.env
+            )
+            self.mcp_tools = await self.mcp_client.list_tools()
+        except Exception as e:
+            print(f"Warning: Failed to initialize MCP connection: {e}")
+            self.mcp_client = None
+            self.mcp_tools = []
+    
+    def get_mcp_tools(self) -> List[Dict[str, Any]]:
+        """Get list of available MCP tools."""
+        return self.mcp_tools
     
     def add_message(self, role: str, content: str):
         """Add a message to conversation history"""
