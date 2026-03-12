@@ -27,13 +27,19 @@ export OPENAI_API_KEY='your-openai-api-key-here'
 
 ## Usage
 
-The project provides three main CLI tools:
+The project provides four main CLI tools:
 
 ### Agent (Main Interactive CLI)
 ```bash
 agent
 ```
 Interactive conversational agent with session management, profiles, and memory strategies.
+
+### Scheduler (Background Task Manager)
+```bash
+scheduler start
+```
+Background worker for scheduled tasks, reminders, and periodic data collection. See [Scheduler Documentation](src/aiadvent/scheduler/README.md) for details.
 
 ### Ask AI (Simple Query Tool)
 ```bash

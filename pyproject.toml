@@ -28,6 +28,7 @@ dependencies = [
 ask-ai = "aiadvent.main:main"
 compare-models = "aiadvent.compare.compare_models:compare_models"
 agent = "aiadvent.agent.cli:main"
+scheduler = "aiadvent.scheduler.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

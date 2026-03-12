@@ -18,7 +18,7 @@ class Agent:
     TOKEN_LIMIT = 5000
     WARNING_THRESHOLD = 0.8
     
-    def __init__(self, api_key: str, model: str = "gpt-4o-mini", system_prompt: str = None, compression_enabled: bool = False, strategy: str = "sliding_window", mcp_server_config: Optional[MCPServerConfig] = None):
+    def __init__(self, api_key: str, model: str = "gpt-4o-mini", system_prompt: str = None, compression_enabled: bool = False, strategy: str = "sliding_window", mcp_server_config: Optional[MCPServerConfig] = None, mcp_server_configs: Optional[List[MCPServerConfig]] = None):
         self.client = OpenAI(api_key=api_key)
         self.model = model
         self.system_prompt = system_prompt
@@ -61,10 +61,17 @@ class Agent:
             self.long_term_memory = None
             self.memory_manager = None
         
-        # MCP integration
-        self.mcp_client: Optional[MCPClient] = None
+        # MCP integration - support multiple servers
+        self.mcp_clients: Dict[str, MCPClient] = {}
         self.mcp_tools: List[Dict[str, Any]] = []
-        self.mcp_server_config = mcp_server_config
+        
+        # Legacy single server support
+        if mcp_server_config:
+            self.mcp_server_configs = [mcp_server_config]
+        elif mcp_server_configs:
+            self.mcp_server_configs = mcp_server_configs
+        else:
+            self.mcp_server_configs = []
         
         # Token tracking for last exchange
         self.last_prompt_tokens = 0
@@ -79,25 +86,39 @@ class Agent:
             ))
     
     async def init_mcp(self) -> None:
-        """Initialize MCP connection and retrieve tools. Must be called explicitly."""
-        if not self.mcp_server_config:
-            raise RuntimeError("No MCP server config provided")
-        await self._init_mcp_connection()
+        """Initialize MCP connections and retrieve tools. Must be called explicitly."""
+        if not self.mcp_server_configs:
+            raise RuntimeError("No MCP server configs provided")
+        await self._init_mcp_connections()
     
-    async def _init_mcp_connection(self) -> None:
-        """Initialize MCP connection and retrieve tools."""
-        try:
-            self.mcp_client = MCPClient()
-            await self.mcp_client.connect_stdio(
-                command=self.mcp_server_config.command,
-                args=self.mcp_server_config.args,
-                env=self.mcp_server_config.env
-            )
-            self.mcp_tools = await self.mcp_client.list_tools()
-        except Exception as e:
-            print(f"Warning: Failed to initialize MCP connection: {e}")
-            self.mcp_client = None
-            self.mcp_tools = []
+    async def _init_mcp_connections(self) -> None:
+        """Initialize all MCP connections and retrieve tools."""
+        for config in self.mcp_server_configs:
+            try:
+                client = MCPClient()
+                await client.connect_stdio(
+                    command=config.command,
+                    args=config.args,
+                    env=config.env
+                )
+                
+                # Get server name from command/args
+                server_name = config.args[1] if len(config.args) > 1 else config.command
+                self.mcp_clients[server_name] = client
+                
+                # Retrieve and merge tools
+                tools = await client.list_tools()
+                self.mcp_tools.extend(tools)
+                
+            except Exception as e:
+                print(f"Warning: Failed to initialize MCP connection for {config.command}: {e}")
+    
+    @property
+    def mcp_client(self) -> Optional[MCPClient]:
+        """Legacy property for backward compatibility. Returns first client."""
+        if self.mcp_clients:
+            return list(self.mcp_clients.values())[0]
+        return None
     
     def get_mcp_tools(self) -> List[Dict[str, Any]]:
         """Get list of available MCP tools."""
@@ -114,14 +135,18 @@ class Agent:
         Returns:
             Tool execution result
         """
-        if not self.mcp_client:
-            raise RuntimeError("MCP client not initialized. Call init_mcp() first.")
+        if not self.mcp_clients:
+            raise RuntimeError("MCP clients not initialized. Call init_mcp() first.")
         
-        try:
-            result = await self.mcp_client.call_tool(tool_name, arguments)
-            return result
-        except Exception as e:
-            raise RuntimeError(f"Failed to call MCP tool '{tool_name}': {e}")
+        # Find which client has this tool
+        for client in self.mcp_clients.values():
+            try:
+                result = await client.call_tool(tool_name, arguments)
+                return result
+            except Exception:
+                continue
+        
+        raise RuntimeError(f"Tool '{tool_name}' not found in any MCP server")
     
     def add_message(self, role: str, content: str):
         """Add a message to conversation history"""
