@@ -30,6 +30,7 @@ compare-models = "aiadvent.compare.compare_models:compare_models"
 agent = "aiadvent.agent.cli:main"
 scheduler = "aiadvent.scheduler.cli:main"
 pipeline = "aiadvent.pipeline.cli:main"
+orchestrator = "aiadvent.orchestrator.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
